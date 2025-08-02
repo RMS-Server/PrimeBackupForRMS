@@ -472,6 +472,23 @@ prime_backup:
         create.comment: "I'm a comment"
         restore: restore to the latest backup
         restore_explain: To be precise, restore to the latest non-temporary backup
+    autoclean_cancel:
+      name: cancel auto cleanup
+      success: 'Auto cleanup cancelled'
+      no_scheduled_cleanup: 'No scheduled auto cleanup'
+    autoclean_status:
+      name: show auto cleanup status
+      no_scheduled_cleanup: 'No scheduled auto cleanup'
+      status_info: 'Scheduled to clean {0} backups, remaining time: {1}'
+    autoclean_list:
+      name: list pending cleanup backups
+      no_scheduled_cleanup: 'No scheduled auto cleanup'
+      list_header: '{0} backups scheduled for cleanup:'
+      get_backup_failed: 'Backup #{0}: Failed to get info - {1}'
+    autoclean_check:
+      name: manually check expired backups
+      no_expired_backups: 'No expired auto backups found'
+      found_expired_backups: 'Found {0} expired auto backups:'
 
   job:
     _base:
@@ -496,6 +513,14 @@ prime_backup:
     vacuum_sqlite:
       name: compact database
       name_titled: Compact database
+    auto_cleanup:
+      name: auto cleanup
+      name_titled: Auto cleanup
+      warning_single: 'Auto backup created at {0} will expire and be auto-cleaned. To cancel, type: {1} autoclean cancel'
+      warning_multiple: '{1} auto backups created from {0} will expire and be auto-cleaned. To cancel, type: {2} autoclean cancel'
+      cleanup_completed: 'Auto cleanup completed, deleted {0} expired backups'
+      cleanup_failed: 'Auto cleanup failed, please check logs'
+      cleanup_cancelled: 'Cancelled auto cleanup of {0} auto backups'
 
   error:
     backup_not_found: Backup with ID {} does not exist

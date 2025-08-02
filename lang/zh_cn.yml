@@ -472,6 +472,23 @@ prime_backup:
         create.comment: 我是一个注释
         restore: 回档到最新的备份
         restore_explain: 准确地说，回档到最新的非临时备份
+    autoclean_cancel:
+      name: 取消自动清理
+      success: '自动清理已取消'
+      no_scheduled_cleanup: '没有计划中的自动清理'
+    autoclean_status:
+      name: 查看自动清理状态
+      no_scheduled_cleanup: '没有计划中的自动清理'
+      status_info: '计划清理{0}个备份，剩余时间：{1}'
+    autoclean_list:
+      name: 列出待清理备份
+      no_scheduled_cleanup: '没有计划中的自动清理'
+      list_header: '计划清理的{0}个备份：'
+      get_backup_failed: '备份 #{0}: 获取信息失败 - {1}'
+    autoclean_check:
+      name: 手动检查过期备份
+      no_expired_backups: '没有找到过期的自动备份'
+      found_expired_backups: '找到{0}个过期的自动备份：'
 
   job:
     _base:
@@ -496,6 +513,14 @@ prime_backup:
     vacuum_sqlite:
       name: 整理数据库
       name_titled: 整理数据库
+    auto_cleanup:
+      name: 自动清理
+      name_titled: 自动清理
+      warning_single: '保存于{0}的自动备份即将过期自动清理。如果需要取消，请输入:{1} autoclean cancel'
+      warning_multiple: '保存于{0}的{1}个自动备份即将过期自动清理。如果需要取消，请输入:{2} autoclean cancel'
+      cleanup_completed: '自动清理已完成，删除了{0}个过期备份'
+      cleanup_failed: '自动清理失败，请检查日志'
+      cleanup_cancelled: '已取消{0}个自动备份的自动清理'
 
   error:
     backup_not_found: ID为{}的备份不存在

@@ -15,6 +15,10 @@ class ScheduledBackupConfig(CrontabJobSetting):
 	require_online_players: bool = False
 	require_online_players_blacklist: List[re.Pattern] = []
 
+	auto_cleanup_enabled: bool = False
+	auto_cleanup_expire_time: Duration = Duration('30d')
+	auto_cleanup_warning_time: Duration = Duration('24h')
+
 	def on_deserialization(self, **kwargs):
 		# recompile patterns with re.IGNORECASE
 		self.require_online_players_blacklist = [

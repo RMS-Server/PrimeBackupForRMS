@@ -14,6 +14,7 @@ class CrontabJobId(enum.Enum):
 	prune_backup = enum.auto()
 	schedule_backup = enum.auto()
 	vacuum_sqlite = enum.auto()
+	auto_cleanup = enum.auto()
 
 
 class CrontabJobEvent(enum.Enum):

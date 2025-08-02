@@ -6,6 +6,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 
 from prime_backup import logger
 from prime_backup.mcdr.crontab_job import CrontabJob, CrontabJobId, CrontabJobEvent
+from prime_backup.mcdr.crontab_job.auto_cleanup_job import AutoCleanupJob
 from prime_backup.mcdr.crontab_job.create_db_backup_job import CreateDbBackupJob
 from prime_backup.mcdr.crontab_job.prune_backup_job import PruneBackupJob
 from prime_backup.mcdr.crontab_job.scheduled_backup_job import ScheduledBackupJob
@@ -28,6 +29,7 @@ class CrontabManager:
 			},
 		)
 		job_classes = [
+			AutoCleanupJob,
 			CreateDbBackupJob,
 			PruneBackupJob,
 			ScheduledBackupJob,
