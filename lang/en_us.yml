@@ -322,7 +322,9 @@ prime_backup:
     help:
       name: show help
       commands:
-        title: '[Commands Usages]'
+        title: |-
+          Modified by XRain66
+          [Commands Usages]
         content: |-
           §7{prefix}§r: Display the welcome page
           §7{prefix} help §e[<what>]§r: Display help message of all / given command

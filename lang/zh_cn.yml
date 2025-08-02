@@ -322,7 +322,9 @@ prime_backup:
     help:
       name: 展示帮助
       commands:
-        title: 【指令帮助】
+        title: |-
+          Modified by XRain66
+          【指令帮助】
         content: |-
           §7{prefix}§r: 展示欢迎界面
           §7{prefix} help §e[<指令>]§r: 展示全部指令/给定指令的详细帮助
