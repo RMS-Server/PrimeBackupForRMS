@@ -142,14 +142,11 @@ class AutoCleanupJob(BasicCrontabJob):
 		self.logger.info(f'Executing auto cleanup of {len(backup_ids)} expired backups')
 
 		from prime_backup.mcdr.task.backup.delete_backup_task import DeleteBackupTask
-		from prime_backup.types.operator import Operator
 
-		operator = Operator.pb(PrimeBackupOperatorNames.scheduled_backup)
 		task = DeleteBackupTask(
 			self.get_command_source(),
 			backup_ids,
-			needs_confirm=False,
-			operator=operator
+			needs_confirm=False
 		)
 
 		def cleanup_callback(backup_id: Optional[int], err: Optional[Exception]):
