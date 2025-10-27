@@ -1,6 +1,6 @@
 from typing import Optional
 
-from mcdreforged.api.all import *
+from mcdreforged.api.all import CommandSource, RText, RColor
 from typing_extensions import override
 
 from prime_backup.action.create_backup_action import CreateBackupAction
@@ -103,6 +103,7 @@ class RestoreBackupTask(HeavyTask[None]):
 			restore_mode=True,
 			fail_soft=self.fail_soft,
 			verify_blob=self.verify_blob,
+			retain_patterns=self.config.backup.retain_patterns,
 		).run()
 		cost_restore = timer.get_and_restart()
 

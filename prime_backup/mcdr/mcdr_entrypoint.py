@@ -4,13 +4,14 @@ import threading
 import time
 from typing import Optional
 
-from mcdreforged.api.all import *
+from mcdreforged.api.all import PluginServerInterface, Info
 
 from prime_backup.compressors import CompressMethod
 from prime_backup.config.config import Config, set_config_instance
 from prime_backup.db.access import DbAccess
 from prime_backup.mcdr import mcdr_globals
 from prime_backup.mcdr.command.commands import CommandManager
+from prime_backup.mcdr.command.disabled_command_helper import DisabledCommandHelper
 from prime_backup.mcdr.crontab_manager import CrontabManager
 from prime_backup.mcdr.crash_recovery_manager import CrashRecoveryManager
 from prime_backup.mcdr.online_player_counter import OnlinePlayerCounter
@@ -46,12 +47,14 @@ def is_enabled() -> bool:
 
 
 def on_load(server: PluginServerInterface, old):
+	self_name = server.get_self_metadata().name
+
 	@contextlib.contextmanager
 	def handle_init_error():
 		try:
 			yield
 		except Exception:
-			server.logger.error('{} initialization failed and will be disabled'.format(server.get_self_metadata().name))
+			server.logger.error('{} initialization failed and will be disabled'.format(self_name))
 			server.schedule_task(functools.partial(on_unload, server))
 			raise
 
@@ -69,15 +72,20 @@ def on_load(server: PluginServerInterface, old):
 
 		global init_ok
 		init_ok = is_enabled()
-		server.logger.debug('{} init done, init_ok={}'.format(mcdr_globals.metadata.name, init_ok))
+		server.logger.debug('{} init done, init_ok={}'.format(self_name, init_ok))
 
 	global config, task_manager, command_manager, crontab_manager, online_player_counter, crash_recovery_manager
 	with handle_init_error():
 		config = server.load_config_simple(target_class=Config, failure_policy='raise')
 		set_config_instance(config)
+
+		disabled_command_helper = DisabledCommandHelper(server, self_name)
 		if not is_enabled():
-			server.logger.warning('{} is disabled by config'.format(mcdr_globals.metadata.name))
+			server.logger.warning('{} is disabled by config'.format(self_name))
+			disabled_command_helper.on_disabled()
 			return
+		else:
+			disabled_command_helper.on_enabled()
 
 		task_manager = TaskManager()
 		crontab_manager = CrontabManager(task_manager)
