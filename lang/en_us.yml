@@ -105,6 +105,15 @@ prime_backup:
       confirm_target: restore
       countdown: '{} second later, the world will §cbe restored§r to {}'
       countdown.hover: Click me or enter command {} to abort restore
+    crash_recovery:
+      name: crash recovery
+      start: Crash recovery triggered, preparing snapshot
+      backup_failed: Failed to create crash snapshot, aborting recovery
+      no_previous: No earlier backup available, recovery skipped
+      restore_start: Restoring world to {}
+      completed: Crash recovery completed, restored to {}
+      stopping: Stopping server before recovery
+      restarting: Restarting server after recovery
     backup_set_tag:
       name: set backup tag
       set: Set tag {1} of backup {0} to {2}
@@ -561,6 +570,7 @@ prime_backup:
       none: no comment
       scheduled_backup: Scheduled Backup
       pre_restore: 'Automatic backup before restoring to #{}'
+      crash_auto_recovery: Crash auto recovery snapshot
     backup_full:
       creator: 'Creator: {}'
       restore: Restore to backup {}

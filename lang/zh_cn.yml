@@ -105,6 +105,15 @@ prime_backup:
       confirm_target: 回档
       countdown: '{}秒后将§c回档§r至{}'
       countdown.hover: 点我或输入{}以终止回档
+    crash_recovery:
+      name: 崩溃恢复
+      start: 检测到连续崩溃，正在准备自动回档快照
+      backup_failed: 创建崩溃快照失败，已跳过恢复
+      no_previous: 找不到可用的历史备份，恢复已取消
+      restore_start: 正在回档至{}
+      completed: 崩溃恢复完成，已回档至{}
+      stopping: 正在停止服务器以执行回档
+      restarting: 回档结束，正在重新启动服务器
     backup_set_tag:
       name: 设置备份标签
       set: 已将备份{0}的标签{1}设置为{2}
@@ -561,6 +570,7 @@ prime_backup:
       none: 空
       scheduled_backup: 定时备份
       pre_restore: '回档至#{}前的自动备份'
+      crash_auto_recovery: 服务器意外重启自动回档
     backup_full:
       creator: '创建者: {}'
       restore: 回档至备份{}

@@ -12,6 +12,7 @@ from prime_backup.db.access import DbAccess
 from prime_backup.mcdr import mcdr_globals
 from prime_backup.mcdr.command.commands import CommandManager
 from prime_backup.mcdr.crontab_manager import CrontabManager
+from prime_backup.mcdr.crash_recovery_manager import CrashRecoveryManager
 from prime_backup.mcdr.online_player_counter import OnlinePlayerCounter
 from prime_backup.mcdr.task_manager import TaskManager
 from prime_backup.utils import misc_utils
@@ -21,6 +22,7 @@ task_manager: Optional[TaskManager] = None
 command_manager: Optional[CommandManager] = None
 crontab_manager: Optional[CrontabManager] = None
 online_player_counter: Optional[OnlinePlayerCounter] = None
+crash_recovery_manager: Optional[CrashRecoveryManager] = None
 mcdr_globals.load()
 init_ok: Optional[bool] = None  # False: failed, True: succeeded, None: not done yet
 init_thread: Optional[threading.Thread] = None
@@ -69,7 +71,7 @@ def on_load(server: PluginServerInterface, old):
 		init_ok = is_enabled()
 		server.logger.debug('{} init done, init_ok={}'.format(mcdr_globals.metadata.name, init_ok))
 
-	global config, task_manager, command_manager, crontab_manager, online_player_counter
+	global config, task_manager, command_manager, crontab_manager, online_player_counter, crash_recovery_manager
 	with handle_init_error():
 		config = server.load_config_simple(target_class=Config, failure_policy='raise')
 		set_config_instance(config)
@@ -81,6 +83,7 @@ def on_load(server: PluginServerInterface, old):
 		crontab_manager = CrontabManager(task_manager)
 		command_manager = CommandManager(server, task_manager, crontab_manager)
 		online_player_counter = OnlinePlayerCounter(server)
+		crash_recovery_manager = CrashRecoveryManager(task_manager)
 
 		# registrations need to be done in the on_load() function
 		command_manager.register_command_node()
@@ -115,10 +118,10 @@ def on_unload(server: PluginServerInterface):
 		_has_unload = True
 
 	server.logger.info('Shutting down everything...')
-	global task_manager, crontab_manager
+	global task_manager, crontab_manager, crash_recovery_manager
 
 	def shutdown():
-		global task_manager, crontab_manager
+		global task_manager, crontab_manager, crash_recovery_manager
 		try:
 			if init_thread is not None:
 				init_thread.join()
@@ -130,6 +133,8 @@ def on_unload(server: PluginServerInterface):
 			if task_manager is not None:
 				task_manager.shutdown()
 				task_manager = None
+			if crash_recovery_manager is not None:
+				crash_recovery_manager.reset()
 			DbAccess.shutdown()
 		finally:
 			shutdown_event.set()
@@ -173,12 +178,16 @@ def __reset_online_player_counter(what: str):
 
 def on_server_start(server: PluginServerInterface):
 	__reset_online_player_counter('start')
+	if crash_recovery_manager is not None:
+		crash_recovery_manager.on_server_start(server)
 
 
 def on_server_stop(server: PluginServerInterface, server_return_code: int):
 	__reset_online_player_counter('stop')
 	if init_ok:
 		task_manager.on_server_stopped()
+	if crash_recovery_manager is not None:
+		crash_recovery_manager.record_server_stop(server_return_code)
 
 
 def on_player_joined(server: PluginServerInterface, player: str, info: Info):
