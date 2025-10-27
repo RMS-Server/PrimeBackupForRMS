@@ -38,17 +38,26 @@ class ScheduledBackupJob(BasicCrontabJob):
 	def job_config(self) -> CrontabJobSetting:
 		return self.config
 
-	@property
-	def __store(self) -> dict:
-		return OnlinePlayerCounter.get().job_data_store
+	def check_online_player_counter(self) -> bool:
+		online_player_counter = OnlinePlayerCounter.get()
+		ss = online_player_counter.get_player_record_snapshot()
 
-	@property
-	def __backups_without_players(self) -> int:
-		return self.__store.get('backups_without_players', 0)
+		if ss is not None:
+			online_player_counter.remove_offline_player_records()
+			base_msg = 'Scheduled backup player check: {}'.format(ss.summary)
+			if not ss.has_valid:
+				self.logger.debug('{}, backup skipped'.format(base_msg))
+				return False
 
-	@__backups_without_players.setter
-	def __backups_without_players(self, value: int):
-		self.__store['backups_without_players'] = value
+			if not ss.has_valid_online:
+				self.logger.info('{}, no valid online player, performing the last backup'.format(base_msg))
+			else:
+				self.logger.info('{}, performing normally'.format(base_msg))
+		else:
+			base_msg = 'Scheduled backup player check: no valid data'
+			self.logger.info("{}, performing normally".format(base_msg))
+
+		return True
 
 	@override
 	def run(self):
@@ -59,22 +68,9 @@ class ScheduledBackupJob(BasicCrontabJob):
 			return
 
 		if self.config.require_online_players:
-			online_players = OnlinePlayerCounter.get().get_online_players()
-			if online_players is not None:
-				base_msg = 'Scheduled backup player check: valid={} ignored={}'.format(online_players.valid, online_players.ignored)
-			else:
-				base_msg = 'Scheduled backup player check: no valid data'
-			if online_players is not None and len(online_players.valid) == 0:
-				if self.__backups_without_players >= 1:
-					self.logger.debug('{}, backup skipped'.format(base_msg))
-					return
-				self.__backups_without_players = self.__backups_without_players + 1
-				self.logger.info('{}, performing the last backup'.format(base_msg))
-			else:
-				# player exists (True), or no valid data (None)
-				# let's perform the backup
-				self.__backups_without_players = 0
-				self.logger.info('{}, performing normally'.format(base_msg))
+			should_perform = self.check_online_player_counter()
+			if not should_perform:
+				return
 
 		broadcast_message(self.tr('triggered', self.get_name_text_titled()))
 		with contextlib.ExitStack() as exit_stack:

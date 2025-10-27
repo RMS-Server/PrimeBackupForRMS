@@ -3,7 +3,7 @@ import threading
 from abc import ABC
 from typing import Union, Optional, TypeVar
 
-from mcdreforged.api.all import *
+from mcdreforged.api.all import CommandSource, RTextBase, PermissionLevel
 from typing_extensions import final, override
 
 from prime_backup.action import Action
@@ -87,15 +87,19 @@ class _BasicTask(Task[_T], ABC):
 			self.is_waiting_confirm = False
 
 	def run_action(self, action: Action[_S], auto_interrupt: bool = True) -> _S:
+		if self.__running_action is not None:
+			raise RuntimeError('Cannot run action twice at the same time, current: {}, new: {}'.format(self.__running_action, action))
 		self.__running_action = action
-		if auto_interrupt and self.aborted_event.is_set():
-			action.interrupt()
 		try:
+			if auto_interrupt and self.aborted_event.is_set():
+				action.interrupt()
 			return action.run()
 		finally:
 			self.__running_action = None
 
 	def run_subtask(self, task: Task[_S]) -> _S:
+		if self.__running_subtask is not None:
+			raise RuntimeError('Cannot run task twice at the same time, current: {}, new: {}'.format(self.__running_subtask, task))
 		self.__running_subtask = task
 		try:
 			return task.run()
