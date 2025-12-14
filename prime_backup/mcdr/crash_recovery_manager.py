@@ -28,18 +28,22 @@ class CrashRecoveryManager:
 		self._consecutive_abnormal = 0
 		self._in_progress = False
 		self._last_saved_counter = 0
+		self._pending_crash_log = False
 
 	def record_server_stop(self, return_code: int):
 		"""Track exit status to detect consecutive abnormal shutdowns."""
 		with self._lock:
 			if self._in_progress:
 				return
-			if return_code == 0:
+			crash_log_triggered = self._pending_crash_log
+			self._pending_crash_log = False
+			if return_code == 0 and not crash_log_triggered:
 				# success resets failure streak immediately
 				self._consecutive_abnormal = 0
 			else:
 				self._consecutive_abnormal += 1
-				self._logger.warning('Server exited abnormally with code %s (%s consecutive)', return_code, self._consecutive_abnormal)
+				reason = 'crash log marker' if crash_log_triggered and return_code == 0 else f'exit code {return_code}'
+				self._logger.warning('Server exited abnormally due to %s (%s consecutive)', reason, self._consecutive_abnormal)
 
 	def on_server_start(self, server: PluginServerInterface):
 		"""Intercept the boot if the crash threshold is hit."""
@@ -72,6 +76,14 @@ class CrashRecoveryManager:
 			self._consecutive_abnormal = 0
 			self._in_progress = False
 			self._last_saved_counter = 0
+			self._pending_crash_log = False
+
+	def record_crash_log(self):
+		"""Mark that the server emitted a crash report signature."""
+		with self._lock:
+			if self._in_progress:
+				return
+			self._pending_crash_log = True
 
 
 class _CrashRecoveryTask(HeavyTask[None]):

@@ -177,6 +177,9 @@ def on_info(server: PluginServerInterface, info: Info):
 			if pattern.fullmatch(info.content):
 				task_manager.on_world_saved()
 				break
+		if info.logging_level == 'ERROR' and info.content.startswith('This crash report has been saved to:'):
+			if crash_recovery_manager is not None:
+				crash_recovery_manager.record_crash_log()
 
 
 def __reset_online_player_counter(what: str):
