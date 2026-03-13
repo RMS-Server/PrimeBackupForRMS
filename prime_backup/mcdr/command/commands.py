@@ -10,8 +10,8 @@ from mcdreforged.api.all import PluginServerInterface, CommandSource, CommandCon
 
 from prime_backup.compressors import CompressMethod
 from prime_backup.config.config import Config
-from prime_backup.mcdr.command.backup_id_suggestor import BackupIdSuggestor
 from prime_backup.mcdr.command.nodes import DateNode, IdRangeNode, HexStringNode, JsonObjectNode, BackupIdNode, MultiBackupIdNode
+from prime_backup.mcdr.command.value_suggester import ValueSuggesters
 from prime_backup.mcdr.crontab_job import CrontabJobEvent, CrontabJobId
 from prime_backup.mcdr.crontab_manager import CrontabManager
 from prime_backup.mcdr.task.backup.create_backup_task import CreateBackupTask
@@ -30,7 +30,8 @@ from prime_backup.mcdr.task.backup.transform_backup_id_task import TransformBack
 from prime_backup.mcdr.task.crontab.list_crontab_task import ListCrontabJobTask
 from prime_backup.mcdr.task.crontab.operate_crontab_task import OperateCrontabJobTask
 from prime_backup.mcdr.task.crontab.show_crontab_task import ShowCrontabJobTask
-from prime_backup.mcdr.task.db.inspect_object_tasks import InspectBackupTask, InspectBackupFileTask, InspectBlobTask, InspectFilesetTask
+from prime_backup.mcdr.task.db.delete_backup_file_task import DeleteBackupFileTask
+from prime_backup.mcdr.task.db.inspect_object_tasks import InspectBackupTask, InspectBackupFileTask, InspectBlobTask, InspectFilesetTask, InspectFilesetFileTask
 from prime_backup.mcdr.task.db.migrate_compress_method_task import MigrateCompressMethodTask
 from prime_backup.mcdr.task.db.migrate_hash_method_task import MigrateHashMethodTask
 from prime_backup.mcdr.task.db.prune_database_task import PruneDatabaseTask
@@ -48,7 +49,6 @@ from prime_backup.types.operator import Operator
 from prime_backup.types.standalone_backup_format import StandaloneBackupFormat
 from prime_backup.utils import misc_utils
 from prime_backup.utils.mcdr_utils import tr, reply_message, mkcmd
-from prime_backup.utils.waitable_value import WaitableValue
 
 
 class CommandManagerState(enum.Enum):
@@ -63,7 +63,7 @@ class CommandManager:
 		self.server = server
 		self.task_manager = task_manager
 		self.crontab_manager = crontab_manager
-		self.backup_id_suggestor = BackupIdSuggestor(task_manager)
+		self.value_suggesters = ValueSuggesters(task_manager)
 		self.config = Config.get()
 		self.__state = CommandManagerState.INITIAL
 		self.__root_node = Literal(self.config.command.prefix)
@@ -92,11 +92,16 @@ class CommandManager:
 			self.task_manager.add_task(InspectBackupTask(source, backup_id))
 		self.transform_backup_id(source, context['backup_id'], backup_id_consumer)
 
-	def cmd_db_inspect_file(self, source: CommandSource, context: CommandContext):
+	def cmd_db_inspect_backup_file(self, source: CommandSource, context: CommandContext):
 		def backup_id_consumer(backup_id: int):
-			file_path = context['file_path']
+			file_path = context['backup_file_path']
 			self.task_manager.add_task(InspectBackupFileTask(source, backup_id, file_path))
 		self.transform_backup_id(source, context['backup_id'], backup_id_consumer)
+
+	def cmd_db_inspect_fileset_file(self, source: CommandSource, context: CommandContext):
+		fileset_id = context['fileset_id']
+		file_path = context['fileset_file_path']
+		self.task_manager.add_task(InspectFilesetFileTask(source, fileset_id, file_path))
 
 	def cmd_db_inspect_fileset(self, source: CommandSource, context: CommandContext):
 		fileset_id = context['fileset_id']
@@ -105,6 +110,14 @@ class CommandManager:
 	def cmd_db_inspect_blob(self, source: CommandSource, context: CommandContext):
 		blob_hash = context['blob_hash']
 		self.task_manager.add_task(InspectBlobTask(source, blob_hash))
+
+	def cmd_db_delete_file(self, source: CommandSource, context: CommandContext):
+		def backup_id_consumer(backup_id: int):
+			file_path = context['backup_file_path']
+			needs_confirm = context.get('confirm', 0) == 0
+			recursive = context.get('recursive', 0) > 0
+			self.task_manager.add_task(DeleteBackupFileTask(source, backup_id, file_path, needs_confirm=needs_confirm, recursive=recursive))
+		self.transform_backup_id(source, context['backup_id'], backup_id_consumer)
 
 	def cmd_db_validate(self, source: CommandSource, _: CommandContext, parts: ValidatePart):
 		self.task_manager.add_task(ValidateDbTask(source, parts))
@@ -277,11 +290,19 @@ class CommandManager:
 	# ============================ Command Callback ends ============================
 
 	def suggest_backup_id(self, source: CommandSource) -> List[str]:
-		suggestions = BackupIdNode.get_command_suggestions()
-		wv = self.backup_id_suggestor.request(source)
-		if wv.wait(0.2) == WaitableValue.EMPTY:
-			return suggestions
-		return [*suggestions, *map(str, wv.get())]
+		return [
+			*BackupIdNode.get_command_suggestions(),
+			*self.value_suggesters.suggest_backup_id(source),
+		]
+
+	def suggest_fileset_id(self, source: CommandSource) -> List[str]:
+		return self.value_suggesters.suggest_fileset_id(source)
+
+	def suggest_backup_file_path(self, source: CommandSource, ctx: CommandContext) -> List[str]:
+		return self.value_suggesters.suggest_backup_file_path(source, ctx['backup_id'])
+
+	def suggest_fileset_file_path(self, source: CommandSource, ctx: CommandContext) -> List[str]:
+		return self.value_suggesters.suggest_fileset_file_path(source, ctx['fileset_id'])
 
 	def __transform_backup_id_impl(self, source: CommandSource, backup_id_raw: Union[str, List[str]], csm: Union[Callable[[int], Any], Callable[[List[int]], Any]]):
 		if isinstance(backup_id_raw, str):
@@ -351,6 +372,15 @@ class CommandManager:
 		def create_backup_id(arg_name: str = 'backup_id', clazz: Type[ArgumentNode] = BackupIdNode) -> ArgumentNode:
 			return clazz(arg_name).suggests(self.suggest_backup_id)
 
+		def create_fileset_id(arg_name: str) -> ArgumentNode:
+			return Integer(arg_name).suggests(self.suggest_fileset_id)
+
+		def create_backup_file_path(arg_name: str) -> ArgumentNode:
+			return QuotableText(arg_name).suggests(self.suggest_backup_file_path)
+
+		def create_fileset_file_path(arg_name: str) -> ArgumentNode:
+			return QuotableText(arg_name).suggests(self.suggest_fileset_file_path)
+
 		# --------------- simple commands ---------------
 
 		builder = SimpleCommandBuilder()
@@ -395,7 +425,8 @@ class CommandManager:
 		builder.command('database', lambda src: self.cmd_help(src, {'what': 'database'}))
 		builder.command('database overview', self.cmd_db_overview)
 		builder.command('database inspect backup <backup_id>', self.cmd_db_inspect_backup)
-		builder.command('database inspect file <backup_id> <file_path>', self.cmd_db_inspect_file)
+		builder.command('database inspect file <backup_id> <backup_file_path>', self.cmd_db_inspect_backup_file)
+		builder.command('database inspect file2 <fileset_id> <fileset_file_path>', self.cmd_db_inspect_fileset_file)
 		builder.command('database inspect fileset <fileset_id>', self.cmd_db_inspect_fileset)
 		builder.command('database inspect blob <blob_hash>', self.cmd_db_inspect_blob)
 		builder.command('database validate all', functools.partial(self.cmd_db_validate, parts=ValidatePart.all()))
@@ -407,9 +438,11 @@ class CommandManager:
 		builder.command('database prune', self.cmd_db_prune)
 		builder.command('database migrate_compress_method <compress_method>', self.cmd_db_migrate_compress_method)
 		builder.command('database migrate_hash_method <hash_method>', self.cmd_db_migrate_hash_method)
+		# `database delete file <backup_id> <backup_file_path>` is handled by `make_db_delete_file_cmd()` below
 
-		builder.arg('file_path', QuotableText)  # Notes: it's actually a redefine
-		builder.arg('fileset_id', Integer)  # not that necessary to provide suggestion here
+		builder.arg('fileset_id', create_fileset_id)  # not that necessary to provide suggestion here
+		builder.arg('backup_file_path', create_backup_file_path)  # not that necessary to provide suggestion here
+		builder.arg('fileset_file_path', create_fileset_file_path)  # not that necessary to provide suggestion here
 		builder.arg('blob_hash', HexStringNode)
 		builder.arg('compress_method', lambda n: Enumeration(n, CompressMethod))
 		builder.arg('hash_method', lambda n: Enumeration(n, HashMethod))
@@ -430,6 +463,17 @@ class CommandManager:
 		builder.add_children_for(root)
 
 		# --------------- complex commands ---------------
+
+		def __locate_node(literal_path: List[str]) -> Literal:
+			current_node = root
+			for ltr in literal_path:
+				for child in current_node.get_children():
+					if isinstance(child, Literal) and ltr in child.literals:
+						current_node = child
+						break
+				else:
+					raise KeyError('Node {} does not have literal {!r}'.format(current_node, ltr))
+			return current_node
 
 		def set_confirm_able(node: AbstractNode):
 			node.then(CountingLiteral('--confirm', 'confirm').redirects(node))
@@ -525,6 +569,16 @@ class CommandManager:
 				node.then(children[0])
 			return create_subcommand('tag').then(node)
 
+		def make_db_delete_file_cmd():
+			__locate_node(['database']).then(Literal('delete').then(node_subcommand := Literal('file')))
+			node_bid = create_backup_id()
+			node_file_path = create_backup_file_path('backup_file_path').runs(self.cmd_db_delete_file)
+			node_subcommand.then(node_bid)
+			node_bid.then(node_file_path)
+			for node in [node_bid, node_file_path]:
+				set_confirm_able(node)
+				node.then(CountingLiteral('--recursive', 'recursive').redirects(node))
+
 		# backup
 		root.then(make_back_cmd())
 		root.then(make_delete_cmd())
@@ -532,6 +586,7 @@ class CommandManager:
 		root.then(make_import_cmd())
 		root.then(make_list_cmd())
 		root.then(make_tag_cmd())
+		make_db_delete_file_cmd()
 
 		# --------------- done ---------------
 

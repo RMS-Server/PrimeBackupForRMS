@@ -76,10 +76,13 @@ prime_backup:
       unfinished: 备份导出未完成
       exported: 已将备份{}导出至{}, 耗时{}, 文件大小{}
       failures: '在导出过程中发现{}个错误:'
+    backup_get_ids:
+      name: 获取备份id列表
     backup_list:
       name: 列出备份
       title: 备份列表
       backup_count: '共有{}个备份:'
+      out_of_range: '页数 {} 超出了页数范围 [{}, {}]'
       size: 体积
       next: 下一页
       prev: 上一页
@@ -97,6 +100,7 @@ prime_backup:
       what:
         regular: 普通备份
         temporary: 临时备份
+        scheduled: 定时备份
       start: 开始清理{}
       done: 已完成所有清理子任务, 共删除{}个备份、{}个数据对象, 共释放{}
     backup_rename:
@@ -180,6 +184,21 @@ prime_backup:
       pause.hover: 点击以暂停运行作业{}
       resume: 继续
       resume.hover: 点击以继续运行作业{}
+    db_delete_backup_file:
+      name: 删除备份中的文件
+      start: '正在删除备份{0}中的文件{1}'
+      info.regular: '文件类型: {0}, 原始大小: {1}'
+      info.directory: '文件类型: {0}，文件总数: {1} ({2}个文件、{3}个文件夹), 总原始大小: {4}'
+      cannot_delete_root: '无法删除根路径'
+      cannot_delete_directory: '无法删除文件夹{0}。如需删除，请带上--recursive参数'
+      confirm_target: 删除
+      done: '已删除备份{0}中的文件{1}, 共释放{2}'
+    db_get_fileset_ids:
+      name: 获取文件集ID列表
+    db_get_backup_file_paths:
+      name: 获取备份的文件路径列表
+    db_get_fileset_file_paths:
+      name: 获取文件集的文件路径列表
     db_inspect_backup:
       name: 审查备份
       title: '备份{}'
@@ -205,12 +224,14 @@ prime_backup:
       compress: '压缩方法: {}'
       raw_size: '原始大小: {} ({})'
       stored_size: '储存大小: {} ({})'
-      used_by: '关联文件数: {}'
+      used_by: '关联文件数: {}。样本：'
+      file_sample: '文件集{}, 路径: {}'
     db_inspect_file:
       name: 审查文件
       title: '文件集{0}的文件{1}'
       fileset_id: '所属文件集: {}'
       path: '路径: {}'
+      role: '角色: {}'
       mode: '模式: {} ({})'
       content: '内容: {}'
       blob.hash: '数据对象哈希: {}'
@@ -222,6 +243,7 @@ prime_backup:
       gid.full: 'Gid: {} / {}'
       gid.simple: 'Gid: {}'
       mtime: '修改时间: {} ({})'
+      used_by: '包含此文件的备份数量: {} (样本: {})'
     db_inspect_fileset:
       name: 审查文件集
       title: '文件集{}'
@@ -234,7 +256,7 @@ prime_backup:
       raw_size.delta: '原始大小 (增量): {} ({})'
       stored_size.base: '储存大小: {} ({})'
       stored_size.delta: '储存大小 (增量): {} ({})'
-      used_by: '关联备份数: {} (最近备份: {})'
+      used_by: '关联备份数: {} (样本: {})'
     db_inspect_object_base:
       hover:
         backup_id: 点击以审查备份{}
@@ -398,8 +420,10 @@ prime_backup:
           §7{prefix} database overview§r: 查看数据库信息概览
           §7{prefix} database inspect backup §6<备份ID>§r: 审查给定备份的原始信息
           §7{prefix} database inspect file §6<备份ID> §3<文件路径>§r: 审查给定文件的原始信息
+          §7{prefix} database inspect file2 §3<文件集ID> §3<文件路径>§r: 审查给定文件集中文件的原始信息
           §7{prefix} database inspect fileset §3<文件集ID>§r: 审查给定文件集的原始信息
           §7{prefix} database inspect blob §d<哈希值>§r: 审查给定数据对象的原始信息
+          §7{prefix} database delete file §6<备份ID> §3<文件路径> §7[--recursive]§r: 删除给定备份中的某个文件。若带有§7--recursive§r且目标为文件夹，则递归删除其内部的所有内容
           §7{prefix} database validate §a<组件>§r: 验证数据库内容的正确性。耗时可能较长
           §7{prefix} database vacuum§r: 手动执行SQLite数据库的文件整理操作，减少数据库文件的体积
           §7{prefix} database prune§r: 清理数据库中的无效数据。正常情况下该操作无需手动执行
@@ -407,11 +431,11 @@ prime_backup:
           §7{prefix} database migrate_hash_method <哈希算法>§r: 将当前使用的哈希算法迁移至另一种算法。这将影响所有数据，耗时可能较长
           {scheduled_compact_notes}
           §d【参数帮助】§r
-          §6<文件路径>§r: 要审查的文件的路径，相对备份根目录
+          §3<文件路径>§r: 要审查的文件的路径，相对备份根目录
           §d<哈希值>§r: 要审查的数据对象的哈希值。可以是哈希串的前缀，只要唯一即可
           §d<压缩方法>§r: 可用选项: {compress_methods}
           §d<哈希算法>§r: 可用选项: {hash_methods}
-          §a<组件>§r: 
+          §a<组件>§r:
           - §ablobs§r: 验证数据对象的正确性，如数据大小、哈希值
           - §afiles§r: 验证文件对象的正确性，如文件与数据的关联
           - §afilesets§r: 验证文件集对象的正确性，如文件集与其文件的关联
@@ -456,7 +480,7 @@ prime_backup:
           §7{prefix} list [<页数>] [--参数 <值>]§r
           §d【可选参数】§r
           §7--per-page §e<每页行数>§r: 设置每页展示的备份数量。默认: §e10§r
-          §7--sort §e<排序方式>§r: 设置每页展示的备份数量。默认: time (逆序)
+          §7--sort §e<排序方式>§r: 设置排序方式。默认: time (逆序)
           §7--creator §e<创建者>§r: 仅列出给定创建者的备份
           §7--me§r: 仅列出你自己创建的备份
           §7--from §b<起始日期>§r: 仅列出给定日期之后的备份
@@ -615,6 +639,16 @@ prime_backup:
       h: 小时
       d: 天
       plural_suffix: ''
+    file_role:
+      unknown: 未知
+      standalone: 独立
+      delta_override: 差异-覆盖
+      delta_add: 差异-新增
+      delta_remove: 差异-删除
+    file_type:
+      file: 文件
+      directory: 文件夹
+      symlink: 符号链接
     fileset_kind:
       base: 基础文件集
       delta: 增量文件集
@@ -634,3 +668,4 @@ prime_backup:
     hidden: 隐藏备份
     temporary: 临时备份
     protected: 受保护备份
+    scheduled: 定时备份

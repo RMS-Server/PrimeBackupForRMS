@@ -225,8 +225,8 @@ class PruneBackupTask(HeavyTask[PruneBackupResult]):
 
 			prune_logger.info('============== Prune calculate result start ==============')
 			for pl in plan_list:
-				prune_logger.info('Backup #{} (temp={}) at {}: keep={} reason={}'.format(
-					pl.backup.id, pl.backup.tags.is_temporary_backup(),
+				prune_logger.info('Backup #{} (temp={}, scheduled={}) at {}: keep={} reason={}'.format(
+					pl.backup.id, pl.backup.tags.is_temporary_backup(), pl.backup.tags.is_scheduled_backup(),
 					pl.backup.date_str, pl.mark.keep, pl.mark.reason
 				))
 			prune_logger.info('============== Prune calculate result end ==============')
@@ -292,7 +292,7 @@ class PruneAllBackupTask(HeavyTask[PruneAllBackupResult]):
 	def run(self) -> PruneAllBackupResult:
 		config = self.config.prune
 		result = PruneAllBackupResult()
-		if not config.regular_backup.enabled and not config.temporary_backup.enabled:
+		if not any([config.regular_backup.enabled, config.temporary_backup.enabled, config.scheduled_backup.enabled]):
 			if self.verbose >= _PruneVerbose.all:
 				self.reply_tr('nothing_to_do')
 			return result
@@ -309,7 +309,11 @@ class PruneAllBackupTask(HeavyTask[PruneAllBackupResult]):
 			result.deleted_backup_count += sub_result.deleted_backup_count
 			result.deleted_blobs = result.deleted_blobs + sub_result.deleted_blobs
 
-		prune_backups('regular', BackupFilter().requires_non_temporary_backup(), config.regular_backup)
+		if not self.aborted_event.is_set():
+			# prune scheduled backups first, so some non-scheduled regular backups might get another chance to survive
+			prune_backups('scheduled', BackupFilter().requires_scheduled_backup(), config.scheduled_backup)
+		if not self.aborted_event.is_set():
+			prune_backups('regular', BackupFilter().requires_non_temporary_backup(), config.regular_backup)
 		if not self.aborted_event.is_set():
 			prune_backups('temporary', BackupFilter().requires_temporary_backup(), config.temporary_backup)
 
