@@ -123,19 +123,21 @@ class AutoCleanCheckTask(LightTask[List[int]]):
 	@override
 	def run(self) -> List[int]:
 		auto_cleanup_job = self.crontab_manager.get_job(CrontabJobId.auto_cleanup)
-		
+
+		if not auto_cleanup_job.auto_cleanup_enabled:
+			self.reply(self.tr('disabled'))
+			return []
+
 		expired_backups = auto_cleanup_job.manual_check()
-		
+
 		if not expired_backups:
 			self.reply(self.tr('no_expired_backups'))
 			return []
-		
+
 		self.reply(self.tr('found_expired_backups', len(expired_backups)))
-		
-		from prime_backup.mcdr.text_components import TextComponents
 		for backup in expired_backups:
 			self.reply(TextComponents.backup_brief(backup))
-		
+
 		return [backup.id for backup in expired_backups]
 
 
@@ -156,7 +158,7 @@ class AutoCleanRunTask(HeavyTask[None]):
 		from prime_backup.types.blob_info import BlobListSummary
 
 		auto_cleanup_job = self.crontab_manager.get_job(CrontabJobId.auto_cleanup)
-		expired_backups = auto_cleanup_job.manual_check()
+		expired_backups = auto_cleanup_job.find_expired_backups_now()
 
 		if not expired_backups:
 			self.reply(self.tr('no_expired_backups'))
@@ -166,7 +168,7 @@ class AutoCleanRunTask(HeavyTask[None]):
 		for backup in expired_backups:
 			self.reply(TextComponents.backup_brief(backup))
 
-		if not self.wait_confirm():
+		if not self.wait_confirm(self.tr('confirm_target')):
 			return
 
 		cnt = 0

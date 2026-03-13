@@ -526,12 +526,14 @@ prime_backup:
       get_backup_failed: 'Backup #{0}: Failed to get info - {1}'
     autoclean_check:
       name: manually check expired backups
+      disabled: 'Auto cleanup is disabled (auto_cleanup_enabled = false in config)'
       no_expired_backups: 'No expired auto backups found'
       found_expired_backups: 'Found {0} expired auto backups:'
     autoclean_run:
       name: manually run auto cleanup
       no_expired_backups: 'No expired auto backups found'
       found_expired_backups: 'Found {0} expired auto backups eligible for cleanup:'
+      confirm_target: auto cleanup
       done: 'Auto cleanup completed, deleted {0} backups, freed {1}'
 
   job:

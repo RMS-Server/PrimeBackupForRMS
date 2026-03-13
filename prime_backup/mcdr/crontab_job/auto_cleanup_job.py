@@ -170,6 +170,16 @@ class AutoCleanupJob(BasicCrontabJob):
 			'remaining_time_us': max(0, remaining_time_us),
 		}
 
+	@property
+	def auto_cleanup_enabled(self) -> bool:
+		return self.config.auto_cleanup_enabled
+
+	def find_expired_backups_now(self) -> List[BackupInfo]:
+		"""Find expired backups using the configured expire time, regardless of auto_cleanup_enabled."""
+		current_time_us = int(time.time() * 1_000_000)
+		expire_time_us = int(self.config.auto_cleanup_expire_time.value * 1_000_000)
+		return self._find_expired_backups(current_time_us, expire_time_us)
+
 	def manual_check(self) -> List[BackupInfo]:
 		if not self.config.auto_cleanup_enabled:
 			return []
