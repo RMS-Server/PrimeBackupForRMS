@@ -7,15 +7,18 @@ from mcdreforged.api.all import RTextBase, RText, RTextList, RColor, RAction, RS
 
 from prime_backup import constants
 from prime_backup.compressors import CompressMethod
+from prime_backup.db.values import FileRole
 from prime_backup.types.backup_info import BackupInfo
 from prime_backup.types.backup_tags import BackupTagName
 from prime_backup.types.blob_info import BlobListSummary
+from prime_backup.types.file_info import FileType
 from prime_backup.types.fileset_info import FilesetInfo
 from prime_backup.types.hash_method import HashMethod
 from prime_backup.types.operator import Operator
 from prime_backup.types.units import ByteCount, Duration
 from prime_backup.utils import conversion_utils, misc_utils, backup_utils
 from prime_backup.utils.mcdr_utils import mkcmd, click_and_run
+from prime_backup.utils.path_like import PathLike
 
 
 class TextColors:
@@ -93,7 +96,7 @@ class TextComponents:
 				rtl.append(RText('[x]', color=RColor.dark_gray).h(cls.tr('backup_full.protected', t_bid)), ' ')
 
 		if show_flags:
-			for name in [BackupTagName.hidden, BackupTagName.temporary, BackupTagName.protected]:
+			for name in BackupTagName.bool_tags():
 				misc_utils.assert_true(name.value.type is bool, 'it should be a bool field')
 				flag = backup.tags.get(name) is True
 				if flag:
@@ -130,7 +133,7 @@ class TextComponents:
 		return text
 
 	@classmethod
-	def backup_id_list(cls, backup_ids: Iterable[Any], *, with_brackets: bool = True, **kwargs) -> RTextBase:
+	def backup_id_list(cls, backup_ids: Iterable[Union[int, BackupInfo]], *, with_brackets: bool = True, **kwargs) -> RTextBase:
 		return RTextList(
 			'[' if with_brackets else '',
 			RTextBase.join(', ', [cls.backup_id(backup_id, **kwargs) for backup_id in backup_ids]),
@@ -265,14 +268,30 @@ class TextComponents:
 		return RText(type_flag + permissions, color)
 
 	@classmethod
-	def file_name(cls, file_path: Path) -> RTextBase:
+	def file_name(cls, file_path: PathLike) -> RTextBase:
+		if isinstance(file_path, str):
+			file_path = Path(file_path)
 		return RText(file_path.name, TextColors.file).h(file_path.as_posix())
+
+	@classmethod
+	def file_path(cls, file_path: str) -> RTextBase:
+		return RText(file_path, TextColors.file)
 
 	@classmethod
 	def file_size(cls, byte_cnt: Union[int, ByteCount], *, ndigits: int = 2, always_sign: bool = False, color: RColor = TextColors.byte_count) -> RTextBase:
 		if not isinstance(byte_cnt, ByteCount):
 			byte_cnt = ByteCount(byte_cnt)
 		return RText(byte_cnt.auto_str(ndigits=ndigits, always_sign=always_sign), color=color)
+
+	@classmethod
+	def file_role(cls, file_role: FileRole) -> RTextBase:
+		return cls.tr(f'file_role.{file_role.name}')
+
+	@classmethod
+	def file_type(cls, file_type: FileType) -> RTextBase:
+		if file_type in [FileType.file, FileType.directory, FileType.symlink]:
+			return cls.tr(f'file_type.{file_type.name}')
+		raise ValueError(file_type)
 
 	@classmethod
 	def fileset_id(cls, fileset_id: int) -> RTextBase:

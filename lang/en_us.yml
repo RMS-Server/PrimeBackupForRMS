@@ -66,6 +66,8 @@ prime_backup:
       unfinished: Backup export unfinished
       exported: Exported backup {} to {}, cost {}, size {}
       failures: 'Found {} errors during the export:'
+    backup_get_ids:
+      name: get backup id list
     backup_import:
       name: import backup
       file_not_found: File {} does not exist
@@ -80,6 +82,7 @@ prime_backup:
       name: list backup
       title: Backup list
       backup_count: 'There are {} backups:'
+      out_of_range: 'Page number {} is out of range [{}, {}]'
       size: Size
       next: Next Page
       prev: Previous Page
@@ -96,6 +99,7 @@ prime_backup:
       nothing_to_do: No enabled prune job, no thing to do
       what:
         regular: regular backups
+        scheduled: scheduled backups
         temporary: temporary backups
       start: Start pruning {}
       done: Finished all prune jobs, removed {} backups, {} blobs, freed {}
@@ -180,6 +184,21 @@ prime_backup:
       pause.hover: Click to pause job {}
       resume: resume
       resume.hover: Click to resume job {}
+    db_delete_backup_file:
+      name: delete backup file
+      start: 'Deleting file {1} in backup {0}'
+      info.regular: 'File type: {0}, raw size: {1}'
+      info.directory: 'File type: {0}, directory tree size: {1} ({2} files, {3} directories), raw size sum: {4}'
+      cannot_delete_root: 'Cannot delete the root directory'
+      cannot_delete_directory: 'Cannot delete directory {0} without the --recursive argument'
+      confirm_target: delete
+      done: 'Deleted file {1} in backup {0}, freed {2}'
+    db_get_fileset_ids:
+      name: get fileset id list
+    db_get_backup_file_paths:
+      name: get backup file path list
+    db_get_fileset_file_paths:
+      name: get fileset file path list
     db_inspect_backup:
       name: inspect backup
       title: 'Backup {}'
@@ -205,12 +224,14 @@ prime_backup:
       compress: 'Compress: {}'
       raw_size: 'Raw size: {} ({})'
       stored_size: 'Stored size: {} ({})'
-      used_by: 'Associated file count: {}'
+      used_by: 'Associated file count: {}. Samples:'
+      file_sample: 'fileset {}, path: {}'
     db_inspect_file:
       name: inspect file
       title: 'File {1} in fileset {0}'
       fileset_id: 'Associated fileset: {}'
       path: 'Path: {}'
+      role: 'Role: {}'
       mode: 'Mode: {} ({})'
       content: 'Content: {}'
       blob.hash: 'Blob hash: {}'
@@ -222,6 +243,7 @@ prime_backup:
       gid.full: 'Gid: {} / {}'
       gid.simple: 'Gid: {}'
       mtime: 'Modify time: {} ({})'
+      used_by: 'Backup containing this file: {} (samples: {})'
     db_inspect_fileset:
       name: inspect fileset
       title: 'Fileset {}'
@@ -398,8 +420,10 @@ prime_backup:
           §7{prefix} database overview§r: Report an overview of the database
           §7{prefix} database inspect backup §6<backup_id>§r: Inspect the internal data of the given backup
           §7{prefix} database inspect file §6<backup_id> §3<file_path>§r: Inspect the internal data of the given file
+          §7{prefix} database inspect file2 §3<fileset_id> §3<file_path>§r: Inspect the internal data of the given file in fileset
           §7{prefix} database inspect fileset §3<fileset_id>§r: Inspect the internal data of the given fileset
           §7{prefix} database inspect blob §d<blob_hash>§r: Inspect the internal data of the given blob
+          §7{prefix} database delete file §6<backup_id> §3<file_path> §7[--recursive]§r: Delete given file in the given backup. If §7[--recursive]§r and it's a directory, delete everything inside it
           §7{prefix} database validate §a<part>§r: Validate the correctness of contents in the database. Might take a long time
           §7{prefix} database vacuum§r: Compact the SQLite database manually, to reduce the size of the database file
           §7{prefix} database prune§r: Prune useless objects in the database. Normally this command does not need to be performed manually
@@ -407,7 +431,7 @@ prime_backup:
           §7{prefix} database migrate_hash_method <hash_method>§r: Migrate the currently used hash method to another. Affects all data, might take a long time
           {scheduled_compact_notes}
           §d[Arguments]§r
-          §6<file_path>§r: Path of the file related to the backup source root
+          §3<file_path>§r: Path of the file related to the backup source root
           §d<blob_hash>§r: Hash value of the blob. Can be a prefix of the hash string as long as it's unique
           §d<compress_method>§r: Available options: {compress_methods}
           §d<hash_method>§r: Available options: {hash_methods}
@@ -620,6 +644,16 @@ prime_backup:
       h: hour{}
       d: day{}
       plural_suffix: s
+    file_role:
+      unknown: Unknown
+      standalone: Standalone
+      delta_override: Delta Override
+      delta_add: Delta Add
+      delta_remove: Delta Remove
+    file_type:
+      file: File
+      directory: Directory
+      symlink: Symlink
     fileset_kind:
       base: Base fileset
       delta: Delta fileset
@@ -639,3 +673,4 @@ prime_backup:
     hidden: Hidden backup
     temporary: Temporary backup
     protected: Protected backup
+    scheduled: Scheduled backup

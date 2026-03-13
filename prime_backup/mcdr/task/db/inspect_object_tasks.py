@@ -116,7 +116,8 @@ class _InspectFileTaskBase(_InspectObjectTaskBase, ABC):
 		self.reply(TextComponents.title(self.tr('title', self._gt_fileset_id(file.fileset_id), self._gt_file_name(file.path))))
 
 		self.reply_tr('fileset_id', self._gt_fileset_id(file.fileset_id))
-		self.reply_tr('path', RText(file.path, TextColors.file))
+		self.reply_tr('path', TextComponents.file_path(file.path))
+		self.reply_tr('role', TextComponents.file_role(file.role))
 		self.reply_tr('mode', TextComponents.number(file.mode), TextComponents.file_mode(file.mode))
 		if file.content is not None:
 			self.reply_tr('content', self._jsonfy(file.content_str))
@@ -140,6 +141,8 @@ class _InspectFileTaskBase(_InspectObjectTaskBase, ABC):
 		if file.mtime_us is not None:
 			self.reply_tr('mtime', TextComponents.number(file.mtime_us), TextComponents.date_us(file.mtime_us, decimal=True))
 
+		self.reply_tr('used_by', TextComponents.number(file.backup_count), TextComponents.backup_id_list(file.backup_samples, with_brackets=False))
+
 
 class InspectBackupFileTask(_InspectFileTaskBase):
 	def __init__(self, source: CommandSource, backup_id: int, file_path: str):
@@ -148,7 +151,7 @@ class InspectBackupFileTask(_InspectFileTaskBase):
 
 	@override
 	def _get_file(self) -> FileInfo:
-		return GetBackupFileAction(self.backup_id, self.file_path).run()
+		return GetBackupFileAction(self.backup_id, self.file_path, count_backups=True, sample_backup_num=5).run()
 
 
 class InspectFilesetFileTask(_InspectFileTaskBase):
@@ -158,7 +161,7 @@ class InspectFilesetFileTask(_InspectFileTaskBase):
 
 	@override
 	def _get_file(self) -> FileInfo:
-		return GetFilesetFileAction(self.fileset_id, self.file_path).run()
+		return GetFilesetFileAction(self.fileset_id, self.file_path, count_backups=True, sample_backup_num=5).run()
 
 
 class InspectFilesetTask(_InspectObjectTaskBase):
@@ -202,7 +205,7 @@ class InspectBlobTask(_InspectObjectTaskBase):
 
 	@override
 	def run(self) -> None:
-		blob = GetBlobByHashPrefixAction(self.blob_hash, count_files=True).run()
+		blob = GetBlobByHashPrefixAction(self.blob_hash, count_files=True, sample_file_num=5).run()
 		self.reply(TextComponents.title(self.tr('title', self._gt_blob_hash(blob.hash, shorten_hash=True))))
 
 		self.reply_tr('hash', self._gt_blob_hash(blob.hash))
@@ -211,3 +214,8 @@ class InspectBlobTask(_InspectObjectTaskBase):
 		self.reply_tr('stored_size', RText(blob.stored_size, TextColors.byte_count), TextComponents.file_size(blob.stored_size))
 
 		self.reply_tr('used_by', TextComponents.number(blob.file_count))
+		for i, file in enumerate(blob.file_samples, start=1):
+			self.reply(RTextList(
+				f'{i}. ',
+				self.tr('file_sample', TextComponents.fileset_id(file.fileset_id), TextComponents.file_path(file.path)),
+			))

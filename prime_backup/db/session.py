@@ -5,10 +5,10 @@ import shutil
 import sqlite3
 import time
 from pathlib import Path
-from typing import Optional, Sequence, Dict, Iterator, Callable, Set, Generator
+from typing import Optional, Sequence, Dict, Iterator, Callable, Set, Generator, Iterable, Tuple
 from typing import TypeVar, List
 
-from sqlalchemy import select, delete, desc, func, Select, JSON, text, or_, not_
+from sqlalchemy import select, delete, desc, func, Select, JSON, text, or_, not_, and_, exists
 from sqlalchemy.orm import Session
 from typing_extensions import overload, Union, TypedDict, Unpack, NotRequired
 
@@ -265,6 +265,19 @@ class DbSession:
 		cls.__validate_int_fields_range(file)
 		return file
 
+	@classmethod
+	def create_delta_remove_file(cls, *, path: str, fileset_id: Optional[int] = None) -> schema.File:
+		return cls.create_file(
+			**(dict(fileset_id=fileset_id) if fileset_id is not None else {}),
+			path=path,
+			role=FileRole.delta_remove.value,
+			mode=0,
+			content=None,
+			uid=None,
+			gid=None,
+			mtime=None,
+		)
+
 	def get_file_in_fileset_opt(self, fileset_id: int, path: str) -> Optional[schema.File]:
 		return self.session.get(schema.File, dict(fileset_id=fileset_id, path=path))
 
@@ -383,7 +396,21 @@ class DbSession:
 		backup = self.__convert_backup_or_backup_id_to_backup(backup_or_backup_id)
 		files_base = list_one_fileset(backup.fileset_id_base)
 		files_delta = list_one_fileset(backup.fileset_id_delta)
-		return self.__merge_fileset_files(files_base, files_delta)
+		return self.merge_fileset_files(files_base, files_delta)
+
+	def list_directory_tree_files_in_backup(self, backup_or_backup_id: Union[int, schema.Backup], dir_path: str) -> List[schema.File]:
+		if dir_path == '':
+			return self.get_backup_files(backup_or_backup_id)
+
+		def list_one_fileset(fileset_id: int) -> List[schema.File]:
+			s = select(schema.File).where(schema.File.fileset_id == fileset_id)
+			s = s.where(or_(schema.File.path == dir_path, schema.File.path.startswith(dir_path + '/')))
+			return _list_it(self.session.execute(s).scalars().all())
+
+		backup = self.__convert_backup_or_backup_id_to_backup(backup_or_backup_id)
+		files_base = list_one_fileset(backup.fileset_id_base)
+		files_delta = list_one_fileset(backup.fileset_id_delta)
+		return self.merge_fileset_files(files_base, files_delta)
 
 	def iterate_file_batch(self, *, batch_size: int = 5000) -> Iterator[List[schema.File]]:
 		limit, offset = batch_size, 0
@@ -510,6 +537,21 @@ class DbSession:
 			select(schema.File).
 			where(schema.File.fileset_id == fileset_id)
 		).scalars().all())
+
+	def get_fileset_file_paths(self, fileset_id: int) -> List[str]:
+		return _list_it(self.session.execute(
+			select(schema.File.path).
+			where(schema.File.fileset_id == fileset_id)
+		).scalars().all())
+
+	def get_fileset_file_path_and_role(self, fileset_id: int) -> Dict[str, int]:
+		return {
+			row.path: row.role
+			for row in self.session.execute(
+				select(schema.File.path, schema.File.role).
+				where(schema.File.fileset_id == fileset_id)
+			)
+		}
 
 	def get_fileset_ids_by_blob_hashes(self, hashes: List[str]) -> List[int]:
 		fileset_ids = set()
@@ -724,9 +766,9 @@ class DbSession:
 			raise TypeError(type(backup_or_backup_id))
 
 	@classmethod
-	def __merge_fileset_files(cls, files_base: List[schema.File], files_delta: List[schema.File]) -> List[schema.File]:
-		if len(files_delta) == 0:
-			return files_base.copy()
+	def merge_fileset_files(cls, files_base: Iterable[schema.File], files_delta: Iterable[schema.File]) -> List[schema.File]:
+		if isinstance(files_delta, list) and len(files_delta) == 0:
+			return list(files_base)
 
 		path_to_file = {file.path: file for file in files_base}
 		for file in files_delta:
@@ -746,7 +788,17 @@ class DbSession:
 		backup = self.__convert_backup_or_backup_id_to_backup(backup_or_backup_id)
 		files_base = self.get_fileset_files(backup.fileset_id_base)
 		files_delta = self.get_fileset_files(backup.fileset_id_delta)
-		return self.__merge_fileset_files(files_base, files_delta)
+		return self.merge_fileset_files(files_base, files_delta)
+
+	def get_backup_file_paths(self, backup_or_backup_id: Union[int, schema.Backup]) -> List[str]:
+		backup = self.__convert_backup_or_backup_id_to_backup(backup_or_backup_id)
+		file_paths: Dict[str, None] = dict.fromkeys(self.get_fileset_file_paths(backup.fileset_id_base), None)
+		for path, role in self.get_fileset_file_path_and_role(backup.fileset_id_delta).items():
+			if role == FileRole.delta_add.value:
+				file_paths[path] = None
+			elif role == FileRole.delta_remove:
+				file_paths.pop(path, None)
+		return list(file_paths.keys())
 
 	def get_backups(self, backup_ids: List[int]) -> Dict[int, schema.Backup]:
 		"""
@@ -783,6 +835,50 @@ class DbSession:
 		s = select(schema.Backup).order_by(desc(schema.Backup.id)).limit(1)
 		backups = _list_it(self.session.execute(s).scalars().all())
 		return backups[0] if backups else None
+
+	class _GetBackupContainingFileHelper:
+		def __init__(self, session: Session, file: schema.File):
+			self.session = session
+			self.file = file
+			self.select = self.__create_basic_select()
+
+		def __create_basic_select(self) -> Select:
+			if self.file.role in FileRole.standalone_role_ints():
+				# in a base fileset
+				same_path_delta_file_exists = select(1).where(and_(
+					schema.Backup.fileset_id_delta == schema.File.fileset_id,
+					schema.File.path == self.file.path,
+					schema.File.role.in_(FileRole.delta_role_ints())
+				)).correlate(schema.Backup)
+				return select(schema.Backup).where(and_(
+					schema.Backup.fileset_id_base == self.file.fileset_id,
+					not_(exists(same_path_delta_file_exists))
+				))
+			elif self.file.role in FileRole.delta_role_ints():
+				# in a delta fileset
+				return select(schema.Backup).where(schema.Backup.fileset_id_delta == self.file.fileset_id)
+			else:
+				raise AssertionError('unexpected file role {} for a file in a delta fileset {}: {!r}'.format(self.file.role, self.file.fileset_id, self.file))
+
+		def get_backups(self, limit: Optional[int] = None) -> List[schema.Backup]:
+			s = self.select.order_by(desc(schema.Backup.id))
+			if limit is not None:
+				s = s.limit(limit)
+			return _list_it(self.session.execute(s).scalars().all())
+
+		def get_count(self) -> int:
+			s = select(func.count()).select_from(self.select.subquery())
+			return _int_or_0(self.session.execute(s).scalar_one())
+
+	def get_backups_containing_file(self, file: schema.File, *, limit: Optional[int] = None) -> List[schema.Backup]:
+		return self._GetBackupContainingFileHelper(self.session, file).get_backups(limit=limit)
+
+	def get_backup_count_containing_file(self, file: schema.File) -> int:
+		return self._GetBackupContainingFileHelper(self.session, file).get_count()
+
+	def get_backups_containing_file_with_total(self, file: schema.File, *, limit: Optional[int] = None) -> Tuple[List[schema.Backup], int]:
+		helper = self._GetBackupContainingFileHelper(self.session, file)
+		return helper.get_backups(limit=limit), helper.get_count()
 
 	def list_backup(self, backup_filter: Optional[BackupFilter] = None, limit: Optional[int] = None, offset: Optional[int] = None) -> List[schema.Backup]:
 		if backup_filter is None:
