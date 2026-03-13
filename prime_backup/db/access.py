@@ -10,6 +10,7 @@ from prime_backup.db import db_constants
 from prime_backup.db.migration import DbMigration
 from prime_backup.db.session import DbSession
 from prime_backup.types.hash_method import HashMethod
+from prime_backup.utils import blob_utils
 
 
 class DbAccess:
@@ -35,6 +36,9 @@ class DbAccess:
 		migration.check_and_migrate(create=create, migrate=migrate)
 
 		cls.sync_hash_method()
+
+		if create:
+			blob_utils.prepare_blob_directories()
 
 	@classmethod
 	def shutdown(cls):

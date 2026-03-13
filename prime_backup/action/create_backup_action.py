@@ -27,7 +27,7 @@ from prime_backup.types.backup_info import BackupInfo
 from prime_backup.types.backup_tags import BackupTags
 from prime_backup.types.operator import Operator
 from prime_backup.types.units import ByteCount
-from prime_backup.utils import hash_utils, misc_utils, blob_utils, file_utils, sqlalchemy_utils
+from prime_backup.utils import hash_utils, misc_utils, blob_utils, file_utils, sqlalchemy_utils, mca_utils
 from prime_backup.utils.path_like import PathLike
 from prime_backup.utils.thread_pool import FailFastBlockingThreadPool
 from prime_backup.utils.time_cost_stats import TimeCostStats
@@ -633,12 +633,74 @@ class CreateBackupAction(CreateBackupActionBase):
 		self.logger.error('All blob copy attempts failed since the file {} keeps changing'.format(src_path_str))
 		raise VolatileBlobFile('blob file {} keeps changing'.format(src_path_str))
 
+	def __should_mca_dedup(self, path: Path, file_size: int) -> bool:
+		return (
+			self.config.backup.mca_chunk_dedup and
+			path.suffix == '.mca' and
+			file_size >= 8192  # minimum valid .mca: 4096 location + 4096 timestamps
+		)
+
+	def __create_mca_blob(self, session: DbSession, src_path: Path, st: os.stat_result) -> Tuple[schema.Blob, os.stat_result]:
+		with self.__time_costs.measure_time_cost(_TimeCostKey.kind_io_read):
+			with _SourceFileNotFound.open_rb(src_path, 'rb') as f:
+				mca_data = f.read()
+
+		if len(mca_data) != st.st_size:
+			raise _BlobFileChanged(f'MCA file size mismatch: stat {st.st_size}, read {len(mca_data)}')
+
+		region = mca_utils.parse_mca(mca_data)
+		hash_method = DbAccess.get_hash_method()
+
+		chunk_hashes: Dict[mca_utils.ChunkCoord, str] = {}
+		chunk_payloads: Dict[str, bytes] = {}  # hash -> payload, deduped within file
+		for coord, payload in region.chunks.items():
+			h = hash_utils.calc_bytes_hash(payload)
+			chunk_hashes[coord] = h
+			if h not in chunk_payloads:
+				chunk_payloads[h] = payload
+
+		with self.__time_costs.measure_time_cost(_TimeCostKey.kind_db):
+			existing_blobs = session.get_blobs(list(chunk_payloads.keys()))
+
+		for h, payload in chunk_payloads.items():
+			if existing_blobs.get(h) is not None:
+				continue
+			blob_path = blob_utils.get_blob_path(h)
+			self._add_remove_file_rollbacker(blob_path)
+			with self.__time_costs.measure_time_cost(_TimeCostKey.kind_io_write):
+				with open(blob_path, 'wb') as f:
+					f.write(payload)
+			self._create_blob(session, hash=h, compress=CompressMethod.plain.name, raw_size=len(payload), stored_size=len(payload))
+
+		manifest_data = mca_utils.encode_manifest(chunk_hashes, region.timestamps, hash_method)
+		manifest_hash = hash_utils.calc_bytes_hash(manifest_data)
+
+		with self.__time_costs.measure_time_cost(_TimeCostKey.kind_db):
+			manifest_blob = session.get_blob_opt(manifest_hash)
+
+		if manifest_blob is None:
+			compress_method = self.config.backup.get_compress_method_from_size(len(manifest_data))
+			compressor = Compressor.create(compress_method)
+			blob_path = blob_utils.get_blob_path(manifest_hash)
+			self._add_remove_file_rollbacker(blob_path)
+			with self.__time_costs.measure_time_cost(_TimeCostKey.kind_io_write):
+				with compressor.open_compressed_bypassed(blob_path) as (writer, f):
+					f.write(manifest_data)
+			manifest_blob = self._create_blob(
+				session,
+				hash=manifest_hash,
+				compress=compress_method.name,
+				raw_size=len(manifest_data),
+				stored_size=writer.get_write_len(),
+			)
+
+		return manifest_blob, st
+
 	def __create_file(self, session: DbSession, path: Path) -> Generator[Any, Any, schema.File]:
 		if (reused_file := self.__pre_calc_result.reused_files.get(path)) is not None:
-			# make a copy
 			return session.create_file(
 				path=sqlalchemy_utils.mapped_cast(reused_file.path),
-				role=FileRole.unknown.value,
+				role=sqlalchemy_utils.mapped_cast(reused_file.role),
 				mode=sqlalchemy_utils.mapped_cast(reused_file.mode),
 				content=sqlalchemy_utils.mapped_cast(reused_file.content),
 				blob_hash=sqlalchemy_utils.mapped_cast(reused_file.blob_hash),
@@ -656,16 +718,25 @@ class CreateBackupAction(CreateBackupActionBase):
 
 		blob: Optional[schema.Blob] = None
 		content: Optional[bytes] = None
+		role = FileRole.unknown.value
 		if stat.S_ISREG(st.st_mode):
-			gen = self.__get_or_create_blob(session, path, st)
-			try:
-				query = gen.send(None)
-				while True:
-					result = yield query
-					query = gen.send(result)
-			except StopIteration as e:
-				blob, st = e.value
-				# notes: st.st_size might be incorrect, use blob.raw_size instead
+			use_mca = False
+			if self.__should_mca_dedup(path, st.st_size):
+				try:
+					blob, st = self.__create_mca_blob(session, path, st)
+					role = FileRole.mca_assembled.value
+					use_mca = True
+				except (ValueError, _BlobFileChanged) as e:
+					self.logger.warning(f'MCA dedup failed for {path!r}, falling back to normal blob: {e}')
+			if not use_mca:
+				gen = self.__get_or_create_blob(session, path, st)
+				try:
+					query = gen.send(None)
+					while True:
+						result = yield query
+						query = gen.send(result)
+				except StopIteration as e:
+					blob, st = e.value
 		elif stat.S_ISDIR(st.st_mode):
 			pass
 		elif stat.S_ISLNK(st.st_mode):
@@ -676,7 +747,7 @@ class CreateBackupAction(CreateBackupActionBase):
 
 		return session.create_file(
 			path=self.__file_path_to_db_path(path),
-			role=FileRole.unknown.value,
+			role=role,
 
 			mode=st.st_mode,
 			content=content,
@@ -715,7 +786,6 @@ class CreateBackupAction(CreateBackupActionBase):
 			self.logger.info('Pre-calculate all file hash done')
 
 		with self.__time_costs.measure_time_cost(_TimeCostKey.stage_prepare_blob_store, _TimeCostKey.kind_fs):
-			blob_utils.prepare_blob_directories()
 			bs_path = blob_utils.get_blob_store()
 			self.__blob_store_st = bs_path.stat()
 			self.__blob_store_in_cow_fs = file_utils.does_fs_support_cow(bs_path)

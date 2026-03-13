@@ -160,7 +160,8 @@ class FilesetAllocator:
 
 			for file in self.files:
 				file.fileset_id = fileset_base.id
-				file.role = FileRole.standalone.value
+				if file.role != FileRole.mca_assembled.value:
+					file.role = FileRole.standalone.value
 				self.session.add(file)
 
 			self.logger.debug('Created base fileset {}, len(files)={}'.format(fileset_base, len(self.files)))
@@ -178,14 +179,16 @@ class FilesetAllocator:
 			# NOTES: We can only manipulate new files (which are references from self.files),
 			#        DO NOT manipulate old files (which are files in existing fileset)
 			for new_file in c.delta.added:
-				new_file.role = FileRole.delta_add.value
+				if new_file.role != FileRole.mca_assembled.value:
+					new_file.role = FileRole.delta_add.value
 				file_count += 1
 				file_raw_size_sum += (new_file.blob_raw_size or 0)
 				file_stored_size_sum += (new_file.blob_stored_size or 0)
 				delta_files.append(new_file)
 
 			for old_new in c.delta.changed:
-				old_new.new.role = FileRole.delta_override.value
+				if old_new.new.role != FileRole.mca_assembled.value:
+					old_new.new.role = FileRole.delta_override.value
 				file_raw_size_sum += (old_new.new.blob_raw_size or 0) - (old_new.old.blob_raw_size or 0)
 				file_stored_size_sum += (old_new.new.blob_stored_size or 0) - (old_new.old.blob_stored_size or 0)
 				delta_files.append(old_new.new)

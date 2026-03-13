@@ -177,7 +177,6 @@ class ImportBackupAction(CreateBackupActionBase):
 			self.__blob_cache[h] = blob
 
 		files = []
-		blob_utils.prepare_blob_directories()
 		for i, member in enumerate(members):
 			try:
 				file = self.__import_member(session, member, sah_dict.get(i))

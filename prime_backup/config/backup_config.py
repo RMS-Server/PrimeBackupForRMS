@@ -32,6 +32,9 @@ class BackupConfig(Serializable):
 	compress_method: CompressMethod = CompressMethod.zstd
 	compress_threshold: int = 64
 
+	# MCA
+	mca_chunk_dedup: bool = True
+
 	# Advanced
 	fileset_allocate_lookback_count: int = 2
 

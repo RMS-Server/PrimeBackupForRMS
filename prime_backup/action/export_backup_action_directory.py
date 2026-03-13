@@ -215,24 +215,30 @@ class ExportBackupToDirectoryAction(_ExportBackupActionBase):
 		if stat.S_ISREG(file.mode):
 			if self.LOG_FILE_CREATION:
 				self.logger.debug('write file {}'.format(file.path))
-			blob_path = blob_utils.get_blob_path(file.blob_hash)
-			compressor = Compressor.create(file.blob_compress)
-			if compressor.get_method() == CompressMethod.plain:
-				file_utils.copy_file_fast(blob_path, file_path)
-				if self.verify_blob:
-					sah = hash_utils.calc_file_size_and_hash(file_path)
-					self._verify_exported_blob(file, sah.size, sah.hash)
+
+			if self._is_mca_assembled(file):
+				mca_data = self._reconstruct_mca_data(file)
+				with open(file_path, 'wb') as f_out:
+					f_out.write(mca_data)
 			else:
-				with compressor.open_decompressed(blob_path) as f_in:
-					with open(file_path, 'wb') as f_out:
-						if self.verify_blob:
-							reader = BypassReader(f_in, calc_hash=True)
-							shutil.copyfileobj(reader, f_out)
-						else:
-							reader = None
-							shutil.copyfileobj(f_in, f_out)
-				if reader is not None:
-					self._verify_exported_blob(file, reader.get_read_len(), reader.get_hash())
+				blob_path = blob_utils.get_blob_path(file.blob_hash)
+				compressor = Compressor.create(file.blob_compress)
+				if compressor.get_method() == CompressMethod.plain:
+					file_utils.copy_file_fast(blob_path, file_path)
+					if self.verify_blob:
+						sah = hash_utils.calc_file_size_and_hash(file_path)
+						self._verify_exported_blob(file, sah.size, sah.hash)
+				else:
+					with compressor.open_decompressed(blob_path) as f_in:
+						with open(file_path, 'wb') as f_out:
+							if self.verify_blob:
+								reader = BypassReader(f_in, calc_hash=True)
+								shutil.copyfileobj(reader, f_out)
+							else:
+								reader = None
+								shutil.copyfileobj(f_in, f_out)
+					if reader is not None:
+						self._verify_exported_blob(file, reader.get_read_len(), reader.get_hash())
 
 		elif stat.S_ISDIR(file.mode):
 			if self.LOG_FILE_CREATION:

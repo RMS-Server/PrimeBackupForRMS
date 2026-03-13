@@ -190,17 +190,22 @@ class DbSession:
 		return _list_it(self.session.execute(s).scalars().all())
 
 	def iterate_blob_batch(self, *, batch_size: int) -> Iterator[List[schema.Blob]]:
-		limit, offset = batch_size, 0
+		last_hash: Optional[str] = None
 		while True:
-			blobs = self.list_blobs(limit=limit, offset=offset)
-			if len(blobs) == 0:
+			q = select(schema.Blob).order_by(schema.Blob.hash).limit(batch_size)
+			if last_hash is not None:
+				q = q.where(schema.Blob.hash > last_hash)
+			blobs = _list_it(self.session.execute(q).scalars().all())
+			if not blobs:
 				break
 			yield blobs
-			offset += limit
+			last_hash = blobs[-1].hash
+
+	def iter_all_blob_hashes(self) -> Iterator[str]:
+		yield from self.session.execute(select(schema.Blob.hash)).scalars()
 
 	def get_all_blob_hashes(self) -> List[str]:
-		# TODO: don't load all blob into memory?
-		return _list_it(self.session.execute(select(schema.Blob.hash)).scalars().all())
+		return list(self.iter_all_blob_hashes())
 
 	def has_blob_with_size(self, raw_size: int) -> bool:
 		q = self.session.query(schema.Blob).filter_by(raw_size=raw_size).exists()
@@ -292,7 +297,7 @@ class DbSession:
 
 		file_delta = self.get_file_in_fileset_opt(backup.fileset_id_delta, path)
 		if file_delta is not None:
-			if file_delta.role not in [FileRole.delta_add.value, FileRole.delta_override.value]:
+			if file_delta.role not in FileRole.delta_present_role_ints():
 				return None
 			return file_delta
 
@@ -428,6 +433,12 @@ class DbSession:
 		q = self.session.query(schema.File).filter_by(blob_hash=h).exists()
 		exists = self.session.query(q).scalar()
 		return exists
+
+	def calc_file_raw_size_sum(self, fileset_id: int) -> int:
+		return _int_or_0(self.session.execute(
+			select(func.sum(schema.File.blob_raw_size)).
+			where(schema.File.fileset_id == fileset_id)
+		).scalar_one())
 
 	def calc_file_stored_size_sum(self, fileset_id: int) -> int:
 		return _int_or_0(self.session.execute(
@@ -772,7 +783,7 @@ class DbSession:
 
 		path_to_file = {file.path: file for file in files_base}
 		for file in files_delta:
-			if file.role in [FileRole.delta_add.value, FileRole.delta_override.value]:
+			if file.role in FileRole.delta_present_role_ints():
 				path_to_file[file.path] = file
 			elif file.role == FileRole.delta_remove:
 				path_to_file.pop(file.path, None)
@@ -794,7 +805,7 @@ class DbSession:
 		backup = self.__convert_backup_or_backup_id_to_backup(backup_or_backup_id)
 		file_paths: Dict[str, None] = dict.fromkeys(self.get_fileset_file_paths(backup.fileset_id_base), None)
 		for path, role in self.get_fileset_file_path_and_role(backup.fileset_id_delta).items():
-			if role == FileRole.delta_add.value:
+			if role in FileRole.delta_present_role_ints():
 				file_paths[path] = None
 			elif role == FileRole.delta_remove:
 				file_paths.pop(path, None)
@@ -857,8 +868,22 @@ class DbSession:
 			elif self.file.role in FileRole.delta_role_ints():
 				# in a delta fileset
 				return select(schema.Backup).where(schema.Backup.fileset_id_delta == self.file.fileset_id)
+			elif self.file.role == FileRole.mca_assembled.value:
+				# mca_assembled can appear in either base or delta filesets
+				same_path_delta_file_exists = select(1).where(and_(
+					schema.Backup.fileset_id_delta == schema.File.fileset_id,
+					schema.File.path == self.file.path,
+					schema.File.role.in_(FileRole.delta_role_ints() + [FileRole.mca_assembled.value])
+				)).correlate(schema.Backup)
+				return select(schema.Backup).where(or_(
+					and_(
+						schema.Backup.fileset_id_base == self.file.fileset_id,
+						not_(exists(same_path_delta_file_exists))
+					),
+					schema.Backup.fileset_id_delta == self.file.fileset_id,
+				))
 			else:
-				raise AssertionError('unexpected file role {} for a file in a delta fileset {}: {!r}'.format(self.file.role, self.file.fileset_id, self.file))
+				raise AssertionError('unexpected file role {} for file in fileset {}: {!r}'.format(self.file.role, self.file.fileset_id, self.file))
 
 		def get_backups(self, limit: Optional[int] = None) -> List[schema.Backup]:
 			s = self.select.order_by(desc(schema.Backup.id))

@@ -21,6 +21,7 @@ class ScanAndDeleteOrphanBlobsAction(Action[BlobListSummary]):
 			limit_reached = False
 
 			with DbAccess.open_session() as session:
+				alive_chunk_hashes = DeleteOrphanBlobsAction.collect_all_alive_chunk_hashes(session)
 				total_blob_count = session.get_blob_count()
 				checking_blob_count = 0
 				orphan_blob_hashes: List[str] = []
@@ -28,7 +29,8 @@ class ScanAndDeleteOrphanBlobsAction(Action[BlobListSummary]):
 					checking_blob_count += len(blobs)
 					if checking_blob_count % 3000 == 0 or checking_blob_count == total_blob_count:
 						self.logger.info('Checking {} / {} blobs'.format(checking_blob_count, total_blob_count))
-					orphan_blob_hashes.extend(session.filtered_orphan_blob_hashes([blob.hash for blob in blobs]))
+					candidates = session.filtered_orphan_blob_hashes([blob.hash for blob in blobs])
+					orphan_blob_hashes.extend(h for h in candidates if h not in alive_chunk_hashes)
 					if len(orphan_blob_hashes) > self.MAX_IN_MEMORY_OBJECTS:
 						limit_reached = True
 						break

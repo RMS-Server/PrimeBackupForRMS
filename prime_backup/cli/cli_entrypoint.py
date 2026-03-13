@@ -11,6 +11,7 @@ from prime_backup.cli.cmd.cmd_fuse import FuseCommandAdapter
 from prime_backup.cli.cmd.cmd_import import ImportCommandAdapter
 from prime_backup.cli.cmd.cmd_list import ListCommandAdapter
 from prime_backup.cli.cmd.cmd_migrate_db import MigrateDbCommandAdapter
+from prime_backup.cli.cmd.cmd_repack_mca import RepackMcaCommandAdapter
 from prime_backup.cli.cmd.cmd_show import ShowCommandAdapter
 from prime_backup.cli.return_codes import ErrorReturnCodes
 from prime_backup.config.config import Config
@@ -47,6 +48,7 @@ class CliEntrypoint:
 			ImportCommandAdapter(),
 			ListCommandAdapter(),
 			MigrateDbCommandAdapter(),
+			RepackMcaCommandAdapter(),
 			ShowCommandAdapter(),
 		]
 		adaptor_by_command = {adapter.command: adapter for adapter in all_adapters}

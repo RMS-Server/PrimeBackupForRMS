@@ -47,7 +47,7 @@ class ShrinkBaseFilesetAction(Action[FileListSummary]):
 			for delta_fileset in delta_filesets:
 				delta_in_used_paths: Set[str] = set(base_path_in_used.keys())
 				for delta_file in session.get_fileset_files(delta_fileset.id):
-					if delta_file.role in [FileRole.delta_override.value, FileRole.delta_remove.value]:
+					if delta_file.role in [FileRole.delta_override.value, FileRole.delta_remove.value, FileRole.mca_assembled.value]:
 						try:
 							delta_in_used_paths.remove(delta_file.path)
 						except KeyError:
@@ -91,17 +91,19 @@ class ShrinkBaseFilesetAction(Action[FileListSummary]):
 					for delta_file in session.get_fileset_files(delta_fileset.id):
 						if (unused_base_file := unused_base_files.get(delta_file.path)) is None:
 							continue
-						if delta_file.role in [FileRole.delta_override.value, FileRole.delta_remove.value]:
+						if delta_file.role in [FileRole.delta_override.value, FileRole.delta_remove.value, FileRole.mca_assembled.value]:
 							if delta_file.role == FileRole.delta_override.value:
 								if _DEBUG_LOG:
 									self.logger.info(f'DBG: fileset {delta_fileset.id}, {delta_file.path}: override -> add')
-								# override -> add
 								delta_file.role = FileRole.delta_add
+								delta_fileset.file_count += 1
+							elif delta_file.role == FileRole.mca_assembled.value:
+								if _DEBUG_LOG:
+									self.logger.info(f'DBG: fileset {delta_fileset.id}, {delta_file.path}: mca_assembled base removed')
 								delta_fileset.file_count += 1
 							else:
 								if _DEBUG_LOG:
 									self.logger.info(f'DBG: fileset {delta_fileset.id}, {delta_file.path}: remove -> X')
-								# remove -> X
 								files_to_delete.append(delta_file)
 								delta_fileset.file_count += 1
 								delta_fileset.file_object_count -= 1

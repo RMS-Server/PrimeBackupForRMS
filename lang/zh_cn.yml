@@ -271,6 +271,13 @@ prime_backup:
       confirm_target: 迁移
       start: 正在将压缩方法迁移至{}，见控制台以了解进度
       done: '已将压缩方法迁移至{}, 数据对象总储存大小: {} -> {} ({})'
+    db_repack_mca:
+      name: 重组MCA
+      confirm_prompt: 此操作会将所有独立存储的.mca备份数据转换为区块级去重格式
+      confirm_target: 重组
+      start: 正在重组.mca数据, 见控制台以了解进度
+      nothing_to_do: 未找到需要重组的独立.mca数据
+      done: '重组完成. 数据对象总储存大小: {} -> {} (节约{})'
     db_migrate_hash_method:
       name: 哈希算法迁移
       hash_method_unchanged: 哈希算法已经是{}了
@@ -652,6 +659,7 @@ prime_backup:
       delta_override: 差异-覆盖
       delta_add: 差异-新增
       delta_remove: 差异-删除
+      mca_assembled: MCA重组
     file_type:
       file: 文件
       directory: 文件夹

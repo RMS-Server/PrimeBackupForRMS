@@ -34,6 +34,7 @@ from prime_backup.mcdr.task.db.delete_backup_file_task import DeleteBackupFileTa
 from prime_backup.mcdr.task.db.inspect_object_tasks import InspectBackupTask, InspectBackupFileTask, InspectBlobTask, InspectFilesetTask, InspectFilesetFileTask
 from prime_backup.mcdr.task.db.migrate_compress_method_task import MigrateCompressMethodTask
 from prime_backup.mcdr.task.db.migrate_hash_method_task import MigrateHashMethodTask
+from prime_backup.mcdr.task.db.repack_mca_task import RepackMcaTask
 from prime_backup.mcdr.task.db.prune_database_task import PruneDatabaseTask
 from prime_backup.mcdr.task.db.show_db_overview_task import ShowDbOverviewTask
 from prime_backup.mcdr.task.db.vacuum_sqlite_task import VacuumSqliteTask
@@ -132,6 +133,9 @@ class CommandManager:
 	def cmd_db_migrate_hash_method(self, source: CommandSource, context: CommandContext):
 		new_hash_method = context['hash_method']
 		self.task_manager.add_task(MigrateHashMethodTask(source, new_hash_method))
+
+	def cmd_db_repack_mca(self, source: CommandSource, _: CommandContext):
+		self.task_manager.add_task(RepackMcaTask(source))
 
 	def cmd_db_prune(self, source: CommandSource, _: CommandContext):
 		self.task_manager.add_task(PruneDatabaseTask(source))
@@ -442,6 +446,7 @@ class CommandManager:
 		builder.command('database prune', self.cmd_db_prune)
 		builder.command('database migrate_compress_method <compress_method>', self.cmd_db_migrate_compress_method)
 		builder.command('database migrate_hash_method <hash_method>', self.cmd_db_migrate_hash_method)
+		builder.command('database repack_mca', self.cmd_db_repack_mca)
 		# `database delete file <backup_id> <backup_file_path>` is handled by `make_db_delete_file_cmd()` below
 
 		builder.arg('fileset_id', create_fileset_id)  # not that necessary to provide suggestion here

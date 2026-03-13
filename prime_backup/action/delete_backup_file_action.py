@@ -66,9 +66,7 @@ class DeleteBackupFileAction(Action[BlobListSummary]):
 				if file_existing.fileset_id == fileset_id_delta:
 					# remove the existing one in the delta fileset first
 					self.logger.debug('File exists in the delta fileset {}, delete it first'.format(fileset_id_delta))
-					if file_existing.role == FileRole.delta_add.value:
-						if file_base is not None:
-							raise AssertionError('file {!r} in delta fileset {} has role delta_add, but it also exists in the base fileset {}: {!r}'.format(file_existing, fileset_id_delta, fileset_id_base, file_base))
+					if file_existing.role in (FileRole.delta_add.value, FileRole.mca_assembled.value) and file_base is None:
 						fileset_delta.file_count -= 1
 						fileset_delta.file_object_count -= 1
 						fileset_delta.file_raw_size_sum -= file_existing.blob_raw_size or 0
@@ -76,14 +74,16 @@ class DeleteBackupFileAction(Action[BlobListSummary]):
 						backup.file_count -= 1
 						backup.file_raw_size_sum -= file_existing.blob_raw_size or 0
 						backup.file_stored_size_sum -= file_existing.blob_stored_size or 0
-					elif file_existing.role == FileRole.delta_override.value:
-						if file_base is None:
-							raise AssertionError('file {!r} in delta fileset {} has role delta_override, but it does not exist in the base fileset {}'.format(file_existing, fileset_id_delta, fileset_id_base))
+					elif file_existing.role in (FileRole.delta_override.value, FileRole.mca_assembled.value) and file_base is not None:
 						fileset_delta.file_object_count -= 1
 						fileset_delta.file_raw_size_sum -= (file_existing.blob_raw_size or 0) - (file_base.blob_raw_size or 0)
 						fileset_delta.file_stored_size_sum -= (file_existing.blob_stored_size or 0) - (file_base.blob_stored_size or 0)
 						backup.file_raw_size_sum -= (file_existing.blob_raw_size or 0) - (file_base.blob_raw_size or 0)
 						backup.file_stored_size_sum -= (file_existing.blob_stored_size or 0) - (file_base.blob_stored_size or 0)
+					elif file_existing.role == FileRole.delta_add.value:
+						raise AssertionError('file {!r} in delta fileset {} has role delta_add, but it also exists in the base fileset {}: {!r}'.format(file_existing, fileset_id_delta, fileset_id_base, file_base))
+					elif file_existing.role == FileRole.delta_override.value:
+						raise AssertionError('file {!r} in delta fileset {} has role delta_override, but it does not exist in the base fileset {}'.format(file_existing, fileset_id_delta, fileset_id_base))
 					else:
 						raise AssertionError('unexpected delta file role {} for file {!r}'.format(file_existing.role, file_existing))
 					if file_existing.blob_hash is not None:

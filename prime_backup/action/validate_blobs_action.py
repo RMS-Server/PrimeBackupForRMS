@@ -1,9 +1,10 @@
 import dataclasses
-from typing import List, Dict
+from typing import List, Dict, Set
 
 from typing_extensions import override
 
 from prime_backup.action import Action
+from prime_backup.action.delete_blob_action import DeleteOrphanBlobsAction
 from prime_backup.compressors import Compressor
 from prime_backup.db.access import DbAccess
 from prime_backup.db.session import DbSession
@@ -45,7 +46,7 @@ class ValidateBlobsAction(Action[ValidateBlobsResult]):
 	def is_interruptable(self) -> bool:
 		return True
 
-	def __validate(self, session: DbSession, result: ValidateBlobsResult, blobs: List[BlobInfo]):
+	def __validate(self, session: DbSession, result: ValidateBlobsResult, blobs: List[BlobInfo], alive_chunk_hashes: Set[str]):
 		hash_to_blobs: Dict[str, BlobInfo] = {}  # store "good" blobs only
 
 		def validate_one_blob(blob: BlobInfo):
@@ -93,6 +94,7 @@ class ValidateBlobsAction(Action[ValidateBlobsResult]):
 				pool.submit(validate_one_blob, b)
 
 		orphan_hashes = set(session.filtered_orphan_blob_hashes(list(hash_to_blobs.keys())))
+		orphan_hashes -= alive_chunk_hashes
 		for h, b in hash_to_blobs.items():
 			if h in orphan_hashes:
 				result.orphan.append(BadBlobItem(b, f'orphan blob with 0 associated file, hash {h}'))
@@ -105,6 +107,7 @@ class ValidateBlobsAction(Action[ValidateBlobsResult]):
 		result = ValidateBlobsResult()
 
 		with DbAccess.open_session() as session:
+			alive_chunk_hashes = DeleteOrphanBlobsAction.collect_all_alive_chunk_hashes(session)
 			result.total = session.get_blob_count()
 			cnt = 0
 			for blobs in session.iterate_blob_batch(batch_size=3000):
@@ -112,7 +115,7 @@ class ValidateBlobsAction(Action[ValidateBlobsResult]):
 					break
 				cnt += len(blobs)
 				self.logger.info('Validating {} / {} blobs'.format(cnt, result.total))
-				self.__validate(session, result, list(map(BlobInfo.of, blobs)))
+				self.__validate(session, result, list(map(BlobInfo.of, blobs)), alive_chunk_hashes)
 
 			bad_blob_hashes = []
 			bad_blob_hashes.extend([bbi.blob.hash for bbi in result.invalid])

@@ -1,15 +1,18 @@
 from abc import abstractmethod, ABC
+from typing import Dict
 
 from typing_extensions import override, TypedDict, NotRequired
 
 from prime_backup.action import Action
+from prime_backup.compressors import Compressor
 from prime_backup.db import schema
 from prime_backup.db.access import DbAccess
 from prime_backup.db.session import DbSession
+from prime_backup.db.values import FileRole
 from prime_backup.exceptions import PrimeBackupError, VerificationError
 from prime_backup.types.backup_info import BackupInfo
 from prime_backup.types.export_failure import ExportFailures
-from prime_backup.utils import misc_utils
+from prime_backup.utils import misc_utils, blob_utils, mca_utils
 
 
 class ExportBackupActionCommonInitKwargs(TypedDict):
@@ -65,3 +68,32 @@ class _ExportBackupActionBase(Action[ExportFailures], ABC):
 			raise VerificationError('raw size mismatched for {}, expected {}, actual written {}'.format(file.path, file.blob_raw_size, written_size))
 		if written_hash != file.blob_hash:
 			raise VerificationError('hash mismatched for {}, expected {}, actual written {}'.format(file.path, file.blob_hash, written_hash))
+
+	@classmethod
+	def _is_mca_assembled(cls, file: schema.File) -> bool:
+		return file.role == FileRole.mca_assembled.value
+
+	@classmethod
+	def _reconstruct_mca_data(cls, file: schema.File) -> bytes:
+		"""Reconstruct .mca file bytes from manifest blob + chunk blobs"""
+		manifest_blob_path = blob_utils.get_blob_path(file.blob_hash)
+		with Compressor.create(file.blob_compress).open_decompressed(manifest_blob_path) as f:
+			manifest_data = f.read()
+
+		manifest = mca_utils.decode_manifest(manifest_data)
+
+		unique_hashes = list(set(manifest.chunk_hashes.values()))
+		chunk_data_map: Dict[str, bytes] = {}
+		with DbAccess.open_session() as chunk_session:
+			chunk_blobs = chunk_session.get_blobs(unique_hashes)
+		for h in unique_hashes:
+			chunk_blob_path = blob_utils.get_blob_path(h)
+			blob = chunk_blobs.get(h)
+			if blob is not None:
+				with Compressor.create(blob.compress).open_decompressed(chunk_blob_path) as f:
+					chunk_data_map[h] = f.read()
+			else:
+				with open(chunk_blob_path, 'rb') as f:
+					chunk_data_map[h] = f.read()
+
+		return mca_utils.reconstruct_mca(manifest, chunk_data_map)

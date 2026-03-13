@@ -22,6 +22,7 @@ from prime_backup.cli.fuse.config import FuseConfig
 from prime_backup.cli.fuse.file import PrimeBackupFuseFile
 from prime_backup.cli.fuse.utils import fuse_operation_wrapper, FuseErrnoReturnError
 from prime_backup.constants import BACKUP_META_FILE_NAME
+from prime_backup.db.values import FileRole
 from prime_backup.exceptions import BackupFileNotFound, BackupNotFound
 from prime_backup.logger import get as get_logger
 from prime_backup.types.backup_info import BackupInfo
@@ -229,7 +230,14 @@ class PrimeBackupFuseFs(fuse.Fuse):
 						raise FuseErrnoReturnError(errno.EINVAL)
 					if file.blob is None:
 						raise FuseErrnoReturnError(errno.EIO)
-					super().__init__(blob=file.blob)
+					if file.role == FileRole.mca_assembled:
+						from prime_backup.action.export_backup_action_base import _ExportBackupActionBase
+						from prime_backup.db import schema as _schema
+						dummy_file = _schema.File(blob_hash=file.blob.hash, blob_compress=file.blob.compress.name, role=file.role.value)
+						mca_data = _ExportBackupActionBase._reconstruct_mca_data(dummy_file)
+						super().__init__(buf=mca_data)
+					else:
+						super().__init__(blob=file.blob)
 
 		# file_class has to be a real class
 		# if it's a function, fuse will think that file stuffs are unimplemented

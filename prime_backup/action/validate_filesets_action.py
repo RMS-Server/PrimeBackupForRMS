@@ -142,6 +142,14 @@ class ValidateFilesetsAction(Action[ValidateFilesetsResult]):
 						file_count -= 1
 						file_raw_size_sum -= old_file.blob_raw_size or 0
 						file_stored_size_sum -= old_file.blob_stored_size or 0
+					elif file.role == FileRole.mca_assembled:
+						if old_file is not None:
+							file_raw_size_sum += (file.blob_raw_size or 0) - (old_file.blob_raw_size or 0)
+							file_stored_size_sum += (file.blob_stored_size or 0) - (old_file.blob_stored_size or 0)
+						else:
+							file_count += 1
+							file_raw_size_sum += file.blob_raw_size or 0
+							file_stored_size_sum += file.blob_stored_size or 0
 
 			if calc_file_stats_ok:
 				if fileset.file_count != file_count:

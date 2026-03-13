@@ -89,10 +89,10 @@ class ValidateFilesAction(Action[ValidateFilesResult]):
 			if (fileset := filesets.get(file.fileset_id)) is None:
 				result.add_bad(file, BadFileItemType.orphan, f'orphan file with a non-exist fileset {file.fileset_id}')
 			elif FilesetInfo.of(fileset).is_base:
-				if file.role != FileRole.standalone:
+				if file.role not in (FileRole.standalone, FileRole.mca_assembled):
 					result.add_bad(file, BadFileItemType.bad_fileset_relation, f'bad file role. fileset {file.fileset_id} is a base fileset, but file role is {file.role}')
 			else:  # fileset is not base, i.e. is a delta filesets
-				if file.role not in [FileRole.delta_override, FileRole.delta_add, FileRole.delta_remove]:
+				if file.role not in [FileRole.delta_override, FileRole.delta_add, FileRole.delta_remove, FileRole.mca_assembled]:
 					result.add_bad(file, BadFileItemType.bad_fileset_relation, f'bad file role. fileset {file.fileset_id} is a delta fileset, but file role is {file.role}')
 
 			file_blob: BlobInfo = file.blob

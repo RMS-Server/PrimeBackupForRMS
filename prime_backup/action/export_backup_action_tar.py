@@ -95,26 +95,28 @@ class ExportBackupToTarAction(_ExportBackupActionBase):
 			if self.LOG_FILE_CREATION:
 				self.logger.debug('add file {} to tarfile'.format(file.path))
 			info.type = tarfile.REGTYPE
-			info.size = file.blob_raw_size
-			blob_path = blob_utils.get_blob_path(file.blob_hash)
 
-			with Compressor.create(file.blob_compress).open_decompressed(blob_path) as stream:
-				# Exception raised in TarFile.addfile might nuke the whole remaining tar file, which is bad
-				# We read a few bytes from the stream, to *hopefully* trigger potential decompress exception in advanced,
-				# make it fail before affecting the actual tar file
-				peek_reader = PeekReader(stream, 32 * 1024)
-				peek_reader.peek()
+			if self._is_mca_assembled(file):
+				mca_data = self._reconstruct_mca_data(file)
+				info.size = len(mca_data)
+				tar.addfile(tarinfo=info, fileobj=BytesIO(mca_data))
+			else:
+				info.size = file.blob_raw_size
+				blob_path = blob_utils.get_blob_path(file.blob_hash)
 
-				if self.verify_blob:
-					reader = BypassReader(peek_reader, calc_hash=True)
-					tar.addfile(tarinfo=info, fileobj=reader)
-				else:
-					reader = None
-					peek_reader: Any
-					tar.addfile(tarinfo=info, fileobj=peek_reader)
-			if reader is not None:
-				# notes: the read len is always <= info.size
-				self._verify_exported_blob(file, reader.get_read_len(), reader.get_hash())
+				with Compressor.create(file.blob_compress).open_decompressed(blob_path) as stream:
+					peek_reader = PeekReader(stream, 32 * 1024)
+					peek_reader.peek()
+
+					if self.verify_blob:
+						reader = BypassReader(peek_reader, calc_hash=True)
+						tar.addfile(tarinfo=info, fileobj=reader)
+					else:
+						reader = None
+						peek_reader: Any
+						tar.addfile(tarinfo=info, fileobj=peek_reader)
+				if reader is not None:
+					self._verify_exported_blob(file, reader.get_read_len(), reader.get_hash())
 
 		elif stat.S_ISDIR(file.mode):
 			if self.LOG_FILE_CREATION:

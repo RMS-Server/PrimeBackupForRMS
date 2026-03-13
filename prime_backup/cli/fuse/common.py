@@ -6,6 +6,7 @@ import math
 from typing_extensions import Self
 
 from prime_backup.action.get_db_overview_action import DbOverviewResult
+from prime_backup.db.values import FileRole
 from prime_backup.types.file_info import FileInfo
 from prime_backup.utils import misc_utils
 
@@ -30,7 +31,13 @@ class PrimeBackupFuseStat(fuse.Stat):
 		st = cls()
 		st.st_mode = file.mode
 		st.st_nlink = 1  # XXX: nlink?
-		st.st_size = file.blob.raw_size if file.blob else 0
+		if file.role == FileRole.mca_assembled and file.blob is not None:
+			from prime_backup.action.export_backup_action_base import _ExportBackupActionBase
+			from prime_backup.db import schema
+			dummy = schema.File(blob_hash=file.blob.hash, blob_compress=file.blob.compress.name, role=file.role.value)
+			st.st_size = len(_ExportBackupActionBase._reconstruct_mca_data(dummy))
+		else:
+			st.st_size = file.blob.raw_size if file.blob else 0
 		st.st_uid = file.uid or 0
 		st.st_gid = file.gid or 0
 

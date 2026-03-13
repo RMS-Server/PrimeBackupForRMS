@@ -45,19 +45,26 @@ class ExportBackupToZipAction(_ExportBackupActionBase):
 		if stat.S_ISREG(file.mode):
 			if self.LOG_FILE_CREATION:
 				self.logger.debug('add file {} to zipfile'.format(file.path))
-			info.file_size = file.blob_raw_size
-			blob_path = blob_utils.get_blob_path(file.blob_hash)
 
-			with Compressor.create(file.blob_compress).open_decompressed(blob_path) as stream:
+			if self._is_mca_assembled(file):
+				mca_data = self._reconstruct_mca_data(file)
+				info.file_size = len(mca_data)
 				with zipf.open(info, 'w') as zip_item:
-					if self.verify_blob:
-						reader = BypassReader(stream, calc_hash=True)
-						shutil.copyfileobj(reader, zip_item)
-					else:
-						reader = None
-						shutil.copyfileobj(stream, zip_item)
-			if reader is not None:
-				self._verify_exported_blob(file, reader.get_read_len(), reader.get_hash())
+					zip_item.write(mca_data)
+			else:
+				info.file_size = file.blob_raw_size
+				blob_path = blob_utils.get_blob_path(file.blob_hash)
+
+				with Compressor.create(file.blob_compress).open_decompressed(blob_path) as stream:
+					with zipf.open(info, 'w') as zip_item:
+						if self.verify_blob:
+							reader = BypassReader(stream, calc_hash=True)
+							shutil.copyfileobj(reader, zip_item)
+						else:
+							reader = None
+							shutil.copyfileobj(stream, zip_item)
+				if reader is not None:
+					self._verify_exported_blob(file, reader.get_read_len(), reader.get_hash())
 
 		elif stat.S_ISDIR(file.mode):
 			if self.LOG_FILE_CREATION:

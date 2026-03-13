@@ -271,6 +271,13 @@ prime_backup:
       confirm_target: migrate
       start: Migrating the compress method to {}, check console to see the progress
       done: 'Migrated the compress method from to {}, blob stored size sum: {} -> {} ({})'
+    db_repack_mca:
+      name: repack mca
+      confirm_prompt: This will convert all standalone .mca backup blobs into chunk-level deduplicated format
+      confirm_target: repack
+      start: Repacking .mca blobs, check console to see the progress
+      nothing_to_do: No standalone .mca blobs found, nothing to repack
+      done: 'Repack done. Blob stored size: {} -> {} (saved {})'
     db_migrate_hash_method:
       name: migrate hash method
       hash_method_unchanged: The hash method is already {}
@@ -652,6 +659,7 @@ prime_backup:
       delta_override: Delta Override
       delta_add: Delta Add
       delta_remove: Delta Remove
+      mca_assembled: MCA Assembled
     file_type:
       file: File
       directory: Directory
