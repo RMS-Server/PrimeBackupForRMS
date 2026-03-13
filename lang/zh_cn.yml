@@ -504,6 +504,11 @@ prime_backup:
       name: 手动检查过期备份
       no_expired_backups: '没有找到过期的自动备份'
       found_expired_backups: '找到{0}个过期的自动备份：'
+    autoclean_run:
+      name: 手动执行自动清理
+      no_expired_backups: '没有找到过期的自动备份'
+      found_expired_backups: '找到{0}个符合自动清理条件的过期备份：'
+      done: '自动清理完成，已删除{0}个备份，释放了{1}'
 
   job:
     _base:

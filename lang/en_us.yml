@@ -504,6 +504,11 @@ prime_backup:
       name: manually check expired backups
       no_expired_backups: 'No expired auto backups found'
       found_expired_backups: 'Found {0} expired auto backups:'
+    autoclean_run:
+      name: manually run auto cleanup
+      no_expired_backups: 'No expired auto backups found'
+      found_expired_backups: 'Found {0} expired auto backups eligible for cleanup:'
+      done: 'Auto cleanup completed, deleted {0} backups, freed {1}'
 
   job:
     _base:

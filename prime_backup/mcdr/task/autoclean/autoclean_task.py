@@ -5,7 +5,7 @@ from typing_extensions import override
 
 from prime_backup.mcdr.crontab_job import CrontabJobId
 from prime_backup.mcdr.crontab_manager import CrontabManager
-from prime_backup.mcdr.task.basic_task import LightTask
+from prime_backup.mcdr.task.basic_task import LightTask, HeavyTask
 from prime_backup.mcdr.text_components import TextComponents
 from prime_backup.utils.mcdr_utils import TranslationContext
 
@@ -137,3 +137,57 @@ class AutoCleanCheckTask(LightTask[List[int]]):
 			self.reply(TextComponents.backup_brief(backup))
 		
 		return [backup.id for backup in expired_backups]
+
+
+class AutoCleanRunTask(HeavyTask[None]):
+	def __init__(self, source: CommandSource, crontab_manager: CrontabManager):
+		super().__init__(source)
+		self.crontab_manager = crontab_manager
+
+	@property
+	@override
+	def id(self) -> str:
+		return 'autoclean_run'
+
+	@override
+	def run(self) -> None:
+		from prime_backup.action.delete_backup_action import DeleteBackupAction
+		from prime_backup.exceptions import BackupNotFound
+		from prime_backup.types.blob_info import BlobListSummary
+
+		auto_cleanup_job = self.crontab_manager.get_job(CrontabJobId.auto_cleanup)
+		expired_backups = auto_cleanup_job.manual_check()
+
+		if not expired_backups:
+			self.reply(self.tr('no_expired_backups'))
+			return
+
+		self.reply(self.tr('found_expired_backups', len(expired_backups)))
+		for backup in expired_backups:
+			self.reply(TextComponents.backup_brief(backup))
+
+		if not self.wait_confirm():
+			return
+
+		cnt = 0
+		bls = BlobListSummary.zero()
+		aborted = False
+		for backup in expired_backups:
+			if self.aborted_event.is_set():
+				self.reply(self.get_aborted_text())
+				aborted = True
+				break
+			try:
+				dr = self.run_action(DeleteBackupAction(backup.id))
+			except BackupNotFound:
+				pass
+			else:
+				cnt += 1
+				bls += dr.bls
+
+		# Clear any pending scheduled cleanup since we just handled the expired backups.
+		# Without this, the crontab job would attempt to re-delete them and broadcast a spurious failure.
+		auto_cleanup_job.reset_cleanup_state()
+
+		if not aborted:
+			self.reply(self.tr('done', cnt, TextComponents.blob_list_summary_store_size(bls)))

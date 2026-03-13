@@ -37,7 +37,7 @@ from prime_backup.mcdr.task.db.prune_database_task import PruneDatabaseTask
 from prime_backup.mcdr.task.db.show_db_overview_task import ShowDbOverviewTask
 from prime_backup.mcdr.task.db.vacuum_sqlite_task import VacuumSqliteTask
 from prime_backup.mcdr.task.db.validate_db_task import ValidateDbTask, ValidatePart
-from prime_backup.mcdr.task.autoclean.autoclean_task import AutoCleanCancelTask, AutoCleanStatusTask, AutoCleanListTask, AutoCleanCheckTask
+from prime_backup.mcdr.task.autoclean.autoclean_task import AutoCleanCancelTask, AutoCleanStatusTask, AutoCleanListTask, AutoCleanCheckTask, AutoCleanRunTask
 from prime_backup.mcdr.task.general.show_help_task import ShowHelpTask
 from prime_backup.mcdr.task.general.show_welcome_task import ShowWelcomeTask
 from prime_backup.mcdr.task_manager import TaskManager
@@ -274,6 +274,9 @@ class CommandManager:
 	def cmd_autoclean_check(self, source: CommandSource, _: CommandContext):
 		self.task_manager.add_task(AutoCleanCheckTask(source, self.crontab_manager))
 
+	def cmd_autoclean_run(self, source: CommandSource, _: CommandContext):
+		self.task_manager.add_task(AutoCleanRunTask(source, self.crontab_manager))
+
 	# ============================ Command Callback ends ============================
 
 	def suggest_backup_id(self, source: CommandSource) -> List[str]:
@@ -388,6 +391,7 @@ class CommandManager:
 		builder.command('autoclean status', self.cmd_autoclean_status)
 		builder.command('autoclean list', self.cmd_autoclean_list)
 		builder.command('autoclean check', self.cmd_autoclean_check)
+		builder.command('autoclean run', self.cmd_autoclean_run)
 
 		builder.arg('job_id', lambda n: Enumeration(n, CrontabJobId))
 

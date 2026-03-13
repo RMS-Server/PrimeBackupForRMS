@@ -149,6 +149,11 @@ class AutoCleanupJob(BasicCrontabJob):
 			return True
 		return False
 
+	def reset_cleanup_state(self) -> None:
+		"""Silently clear scheduled cleanup state, used when manual run has already handled the deletion."""
+		self._cleanup_scheduled_time = None
+		self._cleanup_backup_ids = []
+
 	def get_cleanup_status(self) -> Optional[dict]:
 		scheduled_time = self._cleanup_scheduled_time
 		if scheduled_time is None:
